@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.idea/
+fb_bot_profile/

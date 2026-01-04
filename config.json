@@ -1,0 +1,27 @@
+{
+  "chrome_profile_path": "",
+  "group_url": "https://www.facebook.com/groups/172544843294?locale=he_IL",
+
+  "listener": {
+    "check_interval_min": 360,
+    "check_interval_max": 480,
+    "active_hours_start": 8,
+    "active_hours_end": 23,
+    "posts_to_read": 3
+  },
+
+  "blacklist": [
+    "מחפש",
+    "מחפשת",
+    "מחפשים",
+    "דרוש",
+    "דרושה",
+    "מעוניין",
+    "מעוניינת"
+  ],
+
+  "scraper": {
+    "page_load_wait": 5,
+    "max_time_on_facebook": 15
+  }
+}
