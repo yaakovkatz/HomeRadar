@@ -39,6 +39,38 @@ class FacebookScraper:
     """=================================================================="""
 
     """"=================================================================="""
+    def _clean_noise(self, text):
+        """
+        מנקה רעש מהטקסט (לייקים, תגובות וכו')
+
+        Args:
+            text: הטקסט המלא
+
+        Returns:
+            טקסט נקי
+        """
+        # רשימת סימנים שמסמנים התחלת רעש
+        noise_markers = [
+            "\nלייק",
+            "\nתגובה",
+            "\nשיתוף",
+            "\nכתיבת תגובה",
+            "\nLike",
+            "\nComment",
+            "\nShare",
+            "\nWrite a comment",
+        ]
+
+        # חתוך בסימן הראשון שנמצא
+        for marker in noise_markers:
+            if marker in text:
+                text = text.split(marker)[0]
+                break
+
+        return text.strip()
+    """=================================================================="""
+
+    """"=================================================================="""
     def create_driver(self):
         """יוצר דפדפן"""
         try:
@@ -91,16 +123,6 @@ class FacebookScraper:
             # מעבד רק את הפוסטים הראשונים שבמסך
             for idx, post in enumerate(posts[:max_posts], 1):
                 try:
-                    # לחיצה על כפתור "עוד" לפני שליפת התוכן
-                    try:
-                        see_more = post.find_element(
-                            By.XPATH,
-                            ".//div[contains(text(), 'עוד') or contains(text(), 'See more')]"
-                        )
-                        self.driver.execute_script("arguments[0].click();", see_more)
-                        time.sleep(0.5)
-                    except:
-                        pass  # אין כפתור "עוד" - ממשיכים רגיל
                     # לחיצה על "עוד" - לפני שליפת התוכן
                     try:
                         see_more = post.find_element(By.XPATH, ".//*[contains(text(), 'עוד') or contains(text(), 'See more')]")
@@ -111,6 +133,8 @@ class FacebookScraper:
                     # תוכן
                     try:
                         content = post.text.strip()
+                        # ניקוי רעש
+                        content = self._clean_noise(content)
                     except:
                         content = ""
 
@@ -133,13 +157,23 @@ class FacebookScraper:
                     except:
                         pass
 
-                    # שם מפרסם (ניסיון)
+                    # --- חילוץ שם מפרסם (גרסה חכמה) ---
                     author = "לא ידוע"
                     try:
-                        # זה יכול להשתנות, אבל זה ניסיון בסיסי
-                        author_elements = post.find_elements(By.TAG_NAME, "strong")
-                        if author_elements:
-                            author = author_elements[0].text.strip()
+                        # נסיון 1: חיפוש בכותרות (h2 או h3)
+                        titles = post.find_elements(By.TAG_NAME, "h2")
+                        if not titles:
+                            titles = post.find_elements(By.TAG_NAME, "h3")
+
+                        if titles:
+                            raw_text = titles[0].text.strip()
+                            author = raw_text.split('\n')[0]
+
+                        # נסיון 2: גיבוי (strong)
+                        if author == "לא ידוע":
+                            strongs = post.find_elements(By.TAG_NAME, "strong")
+                            if strongs:
+                                author = strongs[0].text.strip()
                     except:
                         pass
 

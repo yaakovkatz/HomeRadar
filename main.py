@@ -1,383 +1,371 @@
 """
-main.py - ממשק משתמש למצב Guardian (האזנה רציפה)
+main.py - ממשק משתמש סופי בהחלט (עיצוב מתוקן + יומן פעילות חכם RTL)
 """
 
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog
 from listener import FacebookListener
 from database import PostDatabase
+from analytics import Analytics
 import threading
 from datetime import datetime
 import os
+import time
+import webbrowser
+import re
 
+# --- הגדרות צבעים ועיצוב ---
+COLORS = {
+    'primary': '#2c3e50',    # כחול כהה (כותרות)
+    'secondary': '#34495e',  # כחול אפרפר
+    'accent': '#3498db',     # תכלת (כפתורים)
+    'success': '#27ae60',    # ירוק
+    'danger': '#e74c3c',     # אדום
+    'warning': '#f39c12',    # כתום
+    'bg': '#ecf0f1',         # רקע כללי בהיר
+    'card': '#ffffff',       # רקע כרטיסים (לבן)
+    'text': '#2c3e50',       # צבע טקסט ראשי
+    'text_light': '#7f8c8d', # צבע טקסט משני
+    'sub_text': '#95a5a6'    # צבע טקסט קטן
+}
 
 class GuardianGUI:
-    """ממשק גרפי למצב Guardian"""
-
     def __init__(self, root):
-        """אתחול הממשק"""
         self.root = root
-        self.root.title("🏠 Facebook Guardian")
-        self.root.geometry("800x700")
-        self.root.configure(bg='#f0f0f0')
+        self.root.title("Facebook Guardian Pro")
+        self.root.geometry("1150x850")
+        self.root.configure(bg=COLORS['bg'])
 
         self.listener = FacebookListener()
         self.listener.set_status_callback(self.log_status)
-
         self.db = PostDatabase()
+        self.analytics = Analytics()
+        self.session_start_time = None
 
-        # טיפול בסגירת חלון
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        self._create_widgets()
+        # בניית הממשק
+        self._create_header()
+        self._create_dashboard()
+        self._create_controls()
+        self._create_log_area()
+
         self._start_stats_updater()
 
     def on_closing(self):
-        """מטפל בסגירת החלון"""
         if self.listener.is_listening:
-            result = messagebox.askyesno(
-                "האזנה פעילה",
-                "ההאזנה עדיין פעילה.\n\nהאם לעצור ולסגור?"
-            )
-            if not result:
+            if not messagebox.askyesno("יציאה", "ההאזנה פעילה. האם לעצור ולצאת?"):
                 return
-
-        self.log_status("🧹 מנקה ויוצא...")
-
-        # עצור האזנה ונקה
+        self.log_status("מבצע יציאה מסודרת...", "WARNING")
         self.listener.force_cleanup()
-
-        # סגור חלון
         self.root.destroy()
 
-    def _create_widgets(self):
-        """יוצר את כל רכיבי הממשק"""
+    def _create_header(self):
+        header = tk.Frame(self.root, bg=COLORS['primary'], height=85)
+        header.pack(fill='x')
 
-        # כותרת
-        title_frame = tk.Frame(self.root, bg='#2c3e50', height=70)
-        title_frame.pack(fill='x')
-        title_frame.pack_propagate(False)
+        inner_header = tk.Frame(header, bg=COLORS['primary'])
+        inner_header.pack(fill='x', padx=25, pady=10)
 
-        tk.Label(
-            title_frame,
-            text="🏠 Facebook Guardian",
-            font=('Arial', 20, 'bold'),
-            bg='#2c3e50',
-            fg='white'
-        ).pack(side='left', padx=20, pady=15)
+        tk.Label(inner_header, text="🏠", font=('Segoe UI', 35), bg=COLORS['primary'], fg='white').pack(side='right', padx=(0, 15))
 
-        tk.Label(
-            title_frame,
-            text="מצב זהיר - האזנה רציפה",
-            font=('Arial', 10),
-            bg='#2c3e50',
-            fg='#ecf0f1'
-        ).pack(side='left', padx=0, pady=15)
+        title_frame = tk.Frame(inner_header, bg=COLORS['primary'])
+        title_frame.pack(side='right', fill='y')
 
-        # מסגרת ראשית
-        main_frame = tk.Frame(self.root, bg='#f0f0f0')
-        main_frame.pack(fill='both', expand=True, padx=20, pady=20)
+        tk.Label(title_frame, text="Facebook Guardian", font=('Segoe UI', 24, 'bold'), bg=COLORS['primary'], fg='white').pack(anchor='e')
+        tk.Label(title_frame, text="מערכת ניטור נדל\"ן בזמן אמת", font=('Segoe UI', 11), bg=COLORS['primary'], fg='#bdc3c7').pack(anchor='e', pady=(0, 0))
 
-        # --- פאנל סטטוס ---
-        status_frame = tk.LabelFrame(
-            main_frame,
-            text="📊 סטטוס",
-            font=('Arial', 11, 'bold'),
-            bg='#f0f0f0',
-            fg='#2c3e50'
-        )
-        status_frame.pack(fill='x', pady=(0, 10))
+    def _create_dashboard(self):
+        dashboard = tk.Frame(self.root, bg=COLORS['bg'])
+        dashboard.pack(fill='x', padx=15, pady=20)
 
-        status_inner = tk.Frame(status_frame, bg='#f0f0f0')
-        status_inner.pack(padx=15, pady=15)
+        # כרטיסים
+        self.card_status = self._create_card(dashboard, "סטטוס", "ממתין", "לא פעיל")
+        self.card_status.pack(side='right', fill='both', expand=True, padx=5)
 
-        # משתנים לסטטוס
-        self.status_label = tk.Label(
-            status_inner,
-            text="📡 מצב: לא מאזין",
-            font=('Arial', 12, 'bold'),
-            bg='#f0f0f0',
-            fg='#e74c3c'
-        )
-        self.status_label.grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky='w')
+        self.card_time = self._create_card(dashboard, "זמן פעילות", "00:00", "סשן נוכחי")
+        self.card_time.pack(side='right', fill='both', expand=True, padx=5)
 
-        # סטטיסטיקות
-        tk.Label(status_inner, text="🟢 דירות היום:", font=('Arial', 10), bg='#f0f0f0').grid(row=1, column=0, sticky='w', pady=2)
-        self.relevant_label = tk.Label(status_inner, text="0", font=('Arial', 10, 'bold'), bg='#f0f0f0', fg='#27ae60')
-        self.relevant_label.grid(row=1, column=1, sticky='w', padx=10, pady=2)
+        self.card_checks = self._create_card(dashboard, "בדיקות היום", "0", "הבאה: --:--")
+        self.card_checks.pack(side='right', fill='both', expand=True, padx=5)
 
-        tk.Label(status_inner, text="🔴 סוננו:", font=('Arial', 10), bg='#f0f0f0').grid(row=2, column=0, sticky='w', pady=2)
-        self.blacklisted_label = tk.Label(status_inner, text="0", font=('Arial', 10, 'bold'), bg='#f0f0f0', fg='#e74c3c')
-        self.blacklisted_label.grid(row=2, column=1, sticky='w', padx=10, pady=2)
+        self.card_apartments = self._create_card(dashboard, "דירות היום", "0", "שבוע: 0")
+        self.card_apartments.pack(side='right', fill='both', expand=True, padx=5)
 
-        tk.Label(status_inner, text="📈 בדיקות:", font=('Arial', 10), bg='#f0f0f0').grid(row=3, column=0, sticky='w', pady=2)
-        self.checks_label = tk.Label(status_inner, text="0", font=('Arial', 10, 'bold'), bg='#f0f0f0')
-        self.checks_label.grid(row=3, column=1, sticky='w', padx=10, pady=2)
+        self.card_trends = self._create_card(dashboard, "מחיר ממוצע", "--", "עיר מובילה: --")
+        self.card_trends.pack(side='right', fill='both', expand=True, padx=5)
 
-        tk.Label(status_inner, text="⏱️ בדיקה אחרונה:", font=('Arial', 10), bg='#f0f0f0').grid(row=4, column=0, sticky='w', pady=2)
-        self.last_check_label = tk.Label(status_inner, text="-", font=('Arial', 10), bg='#f0f0f0')
-        self.last_check_label.grid(row=4, column=1, sticky='w', padx=10, pady=2)
+    def _create_card(self, parent, title, value, sub_text=""):
+        card = tk.Frame(parent, bg=COLORS['card'], bd=1, relief='flat')
+        tk.Frame(card, bg=COLORS['accent'], height=4).pack(fill='x')
+        content = tk.Frame(card, bg=COLORS['card'], padx=10, pady=10)
+        content.pack(fill='both', expand=True)
 
-        tk.Label(status_inner, text="⏭️ בדיקה הבאה:", font=('Arial', 10), bg='#f0f0f0').grid(row=5, column=0, sticky='w', pady=2)
-        self.next_check_label = tk.Label(status_inner, text="-", font=('Arial', 10), bg='#f0f0f0')
-        self.next_check_label.grid(row=5, column=1, sticky='w', padx=10, pady=2)
+        tk.Label(content, text=title, font=('Segoe UI', 10), fg=COLORS['text_light'], bg=COLORS['card']).pack(anchor='e')
+        lbl_value = tk.Label(content, text=value, font=('Segoe UI', 22, 'bold'), fg=COLORS['text'], bg=COLORS['card'])
+        lbl_value.pack(anchor='e', pady=(2, 0))
+        lbl_sub = tk.Label(content, text=sub_text, font=('Segoe UI', 9), fg=COLORS['sub_text'], bg=COLORS['card'])
+        lbl_sub.pack(anchor='e', pady=(0, 2))
 
-        # --- כפתורי פעולה ---
-        buttons_frame = tk.Frame(main_frame, bg='#f0f0f0')
-        buttons_frame.pack(fill='x', pady=(0, 10))
+        card.value_label = lbl_value
+        card.sub_label = lbl_sub
+        return card
 
-        self.start_button = tk.Button(
-            buttons_frame,
-            text="▶️ התחל האזנה",
-            font=('Arial', 12, 'bold'),
-            bg='#27ae60',
-            fg='white',
-            command=self.start_listening,
-            cursor='hand2',
-            relief='raised',
-            bd=3,
-            padx=20,
-            pady=10
-        )
-        self.start_button.pack(side='left', padx=5, expand=True, fill='x')
+    def _create_controls(self):
+        controls = tk.Frame(self.root, bg=COLORS['bg'])
+        controls.pack(fill='x', padx=20, pady=(0, 15))
 
-        self.stop_button = tk.Button(
-            buttons_frame,
-            text="⏹️ עצור",
-            font=('Arial', 12, 'bold'),
-            bg='#e74c3c',
-            fg='white',
-            command=self.stop_listening,
-            cursor='hand2',
-            relief='raised',
-            bd=3,
-            padx=20,
-            pady=10,
-            state='disabled'
-        )
-        self.stop_button.pack(side='left', padx=5, expand=True, fill='x')
+        self.btn_start = tk.Button(controls, text="▶ התחל האזנה", font=('Segoe UI', 12, 'bold'),
+                                 bg=COLORS['success'], fg='white', relief='flat', cursor='hand2',
+                                 command=self.start_listening, height=2)
+        self.btn_start.pack(side='right', fill='x', expand=True, padx=5)
 
-        # שורה שנייה של כפתורים
-        buttons_frame2 = tk.Frame(main_frame, bg='#f0f0f0')
-        buttons_frame2.pack(fill='x', pady=(0, 10))
+        self.btn_stop = tk.Button(controls, text="⏹ עצור", font=('Segoe UI', 12, 'bold'),
+                                bg=COLORS['danger'], fg='white', relief='flat', cursor='hand2',
+                                command=self.stop_listening, height=2, state='disabled')
+        self.btn_stop.pack(side='right', fill='x', expand=True, padx=5)
 
-        tk.Button(
-            buttons_frame2,
-            text="📋 הצג דירות",
-            font=('Arial', 11, 'bold'),
-            bg='#3498db',
-            fg='white',
-            command=self.show_apartments,
-            cursor='hand2',
-            relief='raised',
-            bd=2,
-            padx=15,
-            pady=8
-        ).pack(side='left', padx=5, expand=True, fill='x')
+        btn_style = {'font': ('Segoe UI', 11), 'bg': COLORS['secondary'], 'fg': 'white', 'relief': 'flat', 'height': 2, 'cursor': 'hand2'}
 
-        tk.Button(
-            buttons_frame2,
-            text="💾 ייצא CSV",
-            font=('Arial', 11, 'bold'),
-            bg='#9b59b6',
-            fg='white',
-            command=self.export_csv,
-            cursor='hand2',
-            relief='raised',
-            bd=2,
-            padx=15,
-            pady=8
-        ).pack(side='left', padx=5, expand=True, fill='x')
+        tk.Button(controls, text="📋 טבלה", command=self.show_apartments, **btn_style).pack(side='right', fill='x', expand=True, padx=5)
+        tk.Button(controls, text="💾 CSV", command=self.export_csv, **btn_style).pack(side='right', fill='x', expand=True, padx=5)
+        tk.Button(controls, text="👥 קבוצות", command=self.manage_groups_placeholder, **btn_style).pack(side='right', fill='x', expand=True, padx=5)
 
-        # --- אזור לוג ---
-        log_frame = tk.LabelFrame(
-            main_frame,
-            text="📝 לוג פעילות",
-            font=('Arial', 10, 'bold'),
-            bg='#f0f0f0'
-        )
-        log_frame.pack(fill='both', expand=True)
+    def _create_log_area(self):
+        log_frame = tk.Frame(self.root, bg=COLORS['bg'], padx=20)
+        log_frame.pack(fill='both', expand=True, pady=(0, 20))
 
-        self.log_text = scrolledtext.ScrolledText(
-            log_frame,
-            font=('Courier New', 9),
-            height=15,
-            wrap='word',
-            bg='#2c3e50',
-            fg='#ecf0f1',
-            insertbackground='white'
-        )
-        self.log_text.pack(padx=10, pady=10, fill='both', expand=True)
+        header_frame = tk.Frame(log_frame, bg=COLORS['bg'])
+        header_frame.pack(fill='x', pady=(0, 5))
+        tk.Label(header_frame, text="📝 יומן פעילות", font=('Segoe UI', 11, 'bold'), bg=COLORS['bg'], fg=COLORS['primary']).pack(side='right')
 
-        # הודעת פתיחה
-        self.log_status("🏠 ברוך הבא ל-Facebook Guardian!")
-        self.log_status("לחץ 'התחל האזנה' כדי להתחיל")
-        self.log_status("-" * 60)
+        self.log_text = scrolledtext.ScrolledText(log_frame, font=('Consolas', 10), height=12,
+                                                bg='white', fg=COLORS['text'], relief='flat', padx=10, pady=10)
+        self.log_text.pack(fill='both', expand=True)
 
-    def log_status(self, message):
-        """מוסיף הודעה ללוג"""
-        self.log_text.insert('end', f"{message}\n")
+        # הגדרת תגיות עיצוב
+        self.log_text.tag_config('INFO', foreground='gray')
+        self.log_text.tag_config('SUCCESS', foreground=COLORS['success'])
+        self.log_text.tag_config('ERROR', foreground=COLORS['danger'])
+        self.log_text.tag_config('WARNING', foreground=COLORS['warning'])
+
+        # מחזירים ליישור לשמאל, כדי שהשעון יהיה בצד הנכון
+        self.log_text.tag_config('RTL', justify='left')
+
+    def log_status(self, message, level='INFO'):
+        """לוג מיושר לשמאל - עם תיקון לעברית שלא תתהפך"""
+
+        # ניקוי זמנים כפולים
+        clean_msg = re.sub(r'^\[.*?\]\s*', '', str(message))
+        timestamp = datetime.now().strftime("%H:%M:%S")
+
+        has_hebrew = any("\u0590" <= c <= "\u05ea" for c in clean_msg)
+
+        # הטריק: התו הנסתר \u200f נמצא *אחרי* השעה
+        # זה משאיר את השעה משמאל, אבל מסדר את העברית שתבוא אחריה טוב
+        if has_hebrew:
+            full_msg = f"[{timestamp}] \u200f{clean_msg}\n"
+            # משתמשים בתגית RTL שמוגדרת ליישור לשמאל (תכף נוודא את זה)
+            self.log_text.insert('end', full_msg, ('RTL', level))
+        else:
+            full_msg = f"[{timestamp}] {clean_msg}\n"
+            self.log_text.insert('end', full_msg, level)
+
         self.log_text.see('end')
-        self.root.update_idletasks()
+
+    def manage_groups_placeholder(self):
+        messagebox.showinfo("בקרוב", "ניהול קבוצות יהיה זמין בגרסה הבאה!")
+
+    # --- לוגיקה ---
 
     def start_listening(self):
-        """מתחיל האזנה"""
-        if self.listener.is_listening:
-            self.log_status("⚠️ כבר מאזין!")
-            return
+        if self.listener.is_listening: return
 
-        if self.listener.is_cleaning:
-            messagebox.showwarning(
-                "המתן...",
-                "מנקה משאבים מהרצה קודמת.\nנסה שוב בעוד כמה שניות."
-            )
-            return
+        self.btn_start.config(state='disabled', bg='#bdc3c7')
+        self.btn_stop.config(state='normal', bg=COLORS['danger'])
 
-        self.start_button.config(state='disabled', text="⏳ פותח...")
-        self.stop_button.config(state='disabled')
-        self.status_label.config(text="📡 מצב: מפעיל...", fg='#f39c12')
+        self.card_status.value_label.config(text="מפעיל...", fg=COLORS['warning'])
+        self.card_status.sub_label.config(text="מתחבר...")
 
-        # התחלה ב-thread
-        def start_thread():
+        self.log_status("מאתחל מנוע האזנה...", "INFO") # לוג יזום
+
+        self.session_start_time = time.time()
+
+        def run():
             success = self.listener.start_listening()
-
-            # בדיקה אם הצליח להתחיל
-            import time
-            time.sleep(2)  # חכה קצת
-
-            if success and self.listener.is_listening and self.listener.scraper:
-                # הצליח!
-                self.start_button.config(state='disabled', text="▶️ התחל האזנה")
-                self.stop_button.config(state='normal')
-                self.status_label.config(text="📡 מצב: מאזין...", fg='#27ae60')
+            if success:
+                self.card_status.value_label.config(text="פעיל", fg=COLORS['success'])
+                self.card_status.sub_label.config(text="סורק קבוצות")
+                self.log_status("המערכת מחוברת ומאזינה בהצלחה", "SUCCESS")
             else:
-                # נכשל
-                self.start_button.config(state='normal', text="▶️ התחל האזנה")
-                self.stop_button.config(state='disabled')
-                self.status_label.config(text="📡 מצב: שגיאה בהפעלה", fg='#e74c3c')
-                messagebox.showerror(
-                    "שגיאה",
-                    "נכשל לפתוח דפדפן!\n\nבדוק את הלוג לפרטים."
-                )
+                self.reset_ui_state()
+                self.log_status("נכשל בהפעלה - בדוק חיבור אינטרנט או דפדפן", "ERROR")
 
-        threading.Thread(target=start_thread, daemon=True).start()
+        threading.Thread(target=run, daemon=True).start()
 
     def stop_listening(self):
-        """עוצר האזנה"""
-        if not self.listener.is_listening:
-            self.log_status("⚠️ לא מאזין כרגע")
-            return
+        self.card_status.value_label.config(text="עוצר...", fg=COLORS['warning'])
+        self.btn_stop.config(state='disabled')
 
-        self.stop_button.config(state='disabled', text="⏳ עוצר...")
-        self.status_label.config(text="📡 מצב: מנקה...", fg='#f39c12')
+        # לוג יזום של עצירה
+        self.log_status("התקבלה פקודת עצירה - סוגר דפדפן...", "WARNING")
 
-        # עצירה ב-thread
-        def stop_thread():
+        def run():
             self.listener.stop_listening()
+            self.reset_ui_state()
+            self.log_status("הדפדפן נסגר וההאזנה הופסקה.", "INFO")
 
-            # חכה שהניקוי יסתיים
-            import time
-            time.sleep(2)
+        threading.Thread(target=run, daemon=True).start()
 
-            # עדכון ממשק
-            self.start_button.config(state='normal')
-            self.stop_button.config(state='disabled', text="⏹️ עצור")
-            self.status_label.config(text="📡 מצב: לא מאזין", fg='#e74c3c')
-
-        threading.Thread(target=stop_thread, daemon=True).start()
+    def reset_ui_state(self):
+        self.btn_start.config(state='normal', bg=COLORS['success'])
+        self.btn_stop.config(state='disabled', bg=COLORS['danger'])
+        self.card_status.value_label.config(text="ממתין", fg=COLORS['text_light'])
+        self.card_status.sub_label.config(text="לא פעיל")
+        self.session_start_time = None
+        self.card_checks.value_label.config(text="0")
+        self.card_checks.sub_label.config(text="הבאה: --:--")
 
     def _start_stats_updater(self):
-        """מעדכן סטטיסטיקות כל 2 שניות"""
+        """מעדכן את כל הכרטיסים"""
         def update():
             while True:
                 try:
-                    stats = self.listener.get_stats()
+                    # 1. זמן פעילות
+                    if self.session_start_time:
+                        uptime = int(time.time() - self.session_start_time)
+                        h, m, s = uptime // 3600, (uptime % 3600) // 60, uptime % 60
+                        self.card_time.value_label.config(text=f"{h:02}:{m:02}:{s:02}")
 
-                    # עדכון תוויות
-                    self.relevant_label.config(text=str(stats.get('today_in_db', 0)))
-                    self.blacklisted_label.config(text=str(stats.get('blacklisted', 0)))
-                    self.checks_label.config(text=str(stats.get('checks_today', 0)))
+                    # 2. נתונים מהליסנר (בדיקות)
+                    listener_stats = self.listener.get_stats()
+                    checks = listener_stats.get('checks_today', 0)
+                    next_check = listener_stats.get('next_check')
 
-                    # בדיקה אחרונה
-                    if stats.get('last_check'):
-                        last = stats['last_check'].strftime("%H:%M:%S")
-                        self.last_check_label.config(text=last)
+                    self.card_checks.value_label.config(text=str(checks))
+                    if next_check:
+                        now = time.time()
+                        if next_check > now:
+                            remaining = int(next_check - now)
+                            rm, rs = remaining // 60, remaining % 60
+                            self.card_checks.sub_label.config(text=f"הבאה: עוד {rm}:{rs:02}")
+                        else:
+                            self.card_checks.sub_label.config(text="הבאה: כעת...")
+                    else:
+                         self.card_checks.sub_label.config(text="הבאה: --:--")
 
-                    # בדיקה הבאה
-                    if stats.get('next_check'):
-                        import time
-                        seconds_left = int(stats['next_check'] - time.time())
-                        if seconds_left > 0:
-                            minutes = seconds_left // 60
-                            secs = seconds_left % 60
-                            self.next_check_label.config(text=f"עוד {minutes}:{secs:02d}")
+                    # 3. נתונים מהדאטאבייס (דירות)
+                    today_stats = self.db.get_stats()
+                    week_stats = self.db.get_week_stats()
 
-                except:
+                    self.card_apartments.value_label.config(text=str(today_stats.get('today', 0)))
+                    self.card_apartments.sub_label.config(text=f"שבוע: {week_stats.get('relevant', 0)}")
+
+                    # 4. טרנדים (מחיר ממוצע)
+                    try:
+                        trends = self.analytics.get_trends_today()
+                        avg_price = trends.get('avg_price', 0)
+                        pop_city = trends.get('popular_city', 'אין')
+
+                        clean_city = re.sub(r'[^\w\s\(\)\'\"]', '', pop_city).strip()
+
+                        if avg_price > 0:
+                            self.card_trends.value_label.config(text=f"₪{avg_price:,}")
+                        else:
+                            self.card_trends.value_label.config(text="--")
+
+                        self.card_trends.sub_label.config(text=f"עיר מובילה: {clean_city}")
+                    except:
+                        pass
+
+                except Exception as e:
                     pass
+                time.sleep(1)
 
-                import time
-                time.sleep(2)
-
-        thread = threading.Thread(target=update, daemon=True)
-        thread.start()
+        threading.Thread(target=update, daemon=True).start()
 
     def show_apartments(self):
-        """מציג חלון עם דירות"""
         posts = self.db.get_all_posts(relevant_only=True, limit=50)
 
         if not posts:
             messagebox.showinfo("אין דירות", "עדיין לא נמצאו דירות חדשות")
             return
 
-        # חלון חדש
         window = tk.Toplevel(self.root)
         window.title("📋 דירות שנמצאו")
-        window.geometry("900x600")
+        window.geometry("1000x600")
 
-        # טבלה
-        tree = ttk.Treeview(window, columns=('תוכן', 'תאריך'), show='headings', height=20)
-        tree.heading('תוכן', text='תוכן הפוסט')
-        tree.heading('תאריך', text='תאריך')
-        tree.column('תוכן', width=700)
-        tree.column('תאריך', width=150)
+        scrollbar = ttk.Scrollbar(window)
+        scrollbar.pack(side='right', fill='y')
 
-        for post in posts:
-            content = post['content'][:100] + "..." if len(post['content']) > 100 else post['content']
-            date = post['scanned_at'][:16] if post['scanned_at'] else ""
-            tree.insert('', 'end', values=(content, date))
+        columns = ('author', 'city', 'price', 'rooms', 'phone', 'date', 'link')
+        tree = ttk.Treeview(window, columns=columns, show='headings', yscrollcommand=scrollbar.set)
 
+        style = ttk.Style()
+        style.configure("Treeview.Heading", font=('Segoe UI', 10, 'bold'))
+        style.configure("Treeview", rowheight=30, font=('Segoe UI', 10))
+
+        tree.heading('author', text='מפרסם', anchor='e')
+        tree.heading('city', text='עיר', anchor='e')
+        tree.heading('price', text='מחיר', anchor='e')
+        tree.heading('rooms', text='חדרים', anchor='center')
+        tree.heading('phone', text='טלפון', anchor='e')
+        tree.heading('date', text='תאריך', anchor='center')
+
+        tree.column('author', width=120, anchor='e')
+        tree.column('city', width=150, anchor='e')
+        tree.column('price', width=100, anchor='e')
+        tree.column('rooms', width=80, anchor='center')
+        tree.column('phone', width=120, anchor='e')
+        tree.column('date', width=150, anchor='center')
+        tree.column('link', width=0, stretch=False)
+
+        scrollbar.config(command=tree.yview)
         tree.pack(padx=10, pady=10, fill='both', expand=True)
 
-        # כפתור סגירה
-        tk.Button(
-            window,
-            text="סגור",
-            command=window.destroy
-        ).pack(pady=10)
+        for post in posts:
+            author = post['author'] or "לא צוין"
+            city = post['city'] or "לא צוין"
+            price = f"₪{post['price']}" if post['price'] else "לא צוין"
+            rooms = post['rooms'] or "לא צוין"
+            phone = post['phone'] or "לא צוין"
+            date = post['scanned_at'][:16] if post['scanned_at'] else ""
+            link = post['post_url']
+
+            tree.insert('', 'end', values=(author, city, price, rooms, phone, date, link))
+
+        def on_double_click(event):
+            item = tree.selection()
+            if not item: return
+            values = tree.item(item, "values")
+            url = values[6]
+            if url and "http" in url:
+                webbrowser.open(url)
+
+        tree.bind("<Double-1>", on_double_click)
+
+        tk.Label(window, text="💡 דאבל-קליק לפתיחת פוסט", fg="gray", font=('Segoe UI', 9)).pack(pady=5)
+        tk.Button(window, text="סגור", command=window.destroy).pack(pady=5)
 
     def export_csv(self):
-        """מייצא ל-CSV"""
-        filename = filedialog.asksaveasfilename(
-            defaultextension=".csv",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-            initialfile=f"apartments_{datetime.now().strftime('%Y%m%d')}.csv"
-        )
-
+        filename = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV", "*.csv")])
         if filename:
-            success = self.db.export_to_csv(filename, relevant_only=True)
-            if success:
-                messagebox.showinfo("הצלחה", f"הקובץ נשמר ב:\n{filename}")
-                os.startfile(os.path.dirname(filename))
+            if self.db.export_to_csv(filename):
+                messagebox.showinfo("הצלחה", "נשמר בהצלחה!")
+                try:
+                    os.startfile(os.path.dirname(filename))
+                except: pass
             else:
-                messagebox.showwarning("אזהרה", "אין נתונים לייצוא")
-
+                messagebox.showwarning("שגיאה", "אין נתונים לייצוא")
 
 def main():
-    """פונקציה ראשית"""
     root = tk.Tk()
+    try:
+        from ctypes import windll
+        windll.shcore.SetProcessDpiAwareness(1)
+    except: pass
     app = GuardianGUI(root)
     root.mainloop()
-
 
 if __name__ == "__main__":
     main()

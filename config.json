@@ -1,7 +1,20 @@
 {
   "chrome_profile_path": "",
-  "group_url": "https://www.facebook.com/groups/172544843294?locale=he_IL",
-
+  "groups_urls": [
+    "https://www.facebook.com/groups/172544843294?locale=he_IL"
+  ],
+  "search_settings": {
+    "cities": [
+      "תל אביב", "ירושלים", "חיפה", "רחובות", "ראשון לציון",
+      "פתח תקווה", "באר שבע", "חולון", "רמת גן", "מעלה אדומים",
+      "בת ים", "הרצליה", "כפר סבא", "מודיעין", "בית שמש",
+      "לוד", "רמלה", "קרית גת", "עפולה", "נהריה", "עכו", "טבריה", "אילת"
+    ],
+    "blacklist": [
+      "מחפש", "מחפשת", "מחפשים", "דרוש", "דרושה",
+      "מעוניין", "מעוניינת", "שותף", "שותפה", "סאבלט"
+    ]
+  },
   "listener": {
     "check_interval_min": 360,
     "check_interval_max": 480,
@@ -9,17 +22,6 @@
     "active_hours_end": 23,
     "posts_to_read": 3
   },
-
-  "blacklist": [
-    "מחפש",
-    "מחפשת",
-    "מחפשים",
-    "דרוש",
-    "דרושה",
-    "מעוניין",
-    "מעוניינת"
-  ],
-
   "scraper": {
     "page_load_wait": 5,
     "max_time_on_facebook": 15
