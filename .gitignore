@@ -1,6 +1,21 @@
-.venv/
+# התעלם מתיקיית הדפדפן (השם המעודכן שלך)
+fb_bot_profile/
+chrome_profile/
+
+# התעלם מהדאטאבייס (חשוב!)
+posts.db
+*.db
+*.sqlite3
+
+# קבצי מערכת של פייתון
 __pycache__/
 *.pyc
+
+# סביבה וירטואלית
+.venv/
+venv/
 .env
+
+# תיקיות של העורך קוד
 .idea/
-fb_bot_profile/
+.vscode/

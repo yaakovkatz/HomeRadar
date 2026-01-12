@@ -130,6 +130,7 @@ class GuardianGUI:
         tk.Button(controls, text="📋 טבלה", command=self.show_apartments, **btn_style).pack(side='right', fill='x', expand=True, padx=5)
         tk.Button(controls, text="💾 CSV", command=self.export_csv, **btn_style).pack(side='right', fill='x', expand=True, padx=5)
         tk.Button(controls, text="👥 קבוצות", command=self.manage_groups_placeholder, **btn_style).pack(side='right', fill='x', expand=True, padx=5)
+        tk.Button(controls, text="⚙️ הגדרות", command=self.open_settings, **btn_style).pack(side='right', fill='x', expand=True, padx=5)
 
     def _create_log_area(self):
         log_frame = tk.Frame(self.root, bg=COLORS['bg'], padx=20)
@@ -153,30 +154,30 @@ class GuardianGUI:
         self.log_text.tag_config('RTL', justify='left')
 
     def log_status(self, message, level='INFO'):
-        """לוג מיושר לשמאל - עם תיקון לעברית שלא תתהפך"""
-
-        # ניקוי זמנים כפולים
+        """לוג עם תמיכה בעברית"""
         clean_msg = re.sub(r'^\[.*?\]\s*', '', str(message))
         timestamp = datetime.now().strftime("%H:%M:%S")
 
-        has_hebrew = any("\u0590" <= c <= "\u05ea" for c in clean_msg)
-
-        # הטריק: התו הנסתר \u200f נמצא *אחרי* השעה
-        # זה משאיר את השעה משמאל, אבל מסדר את העברית שתבוא אחריה טוב
-        if has_hebrew:
-            full_msg = f"[{timestamp}] \u200f{clean_msg}\n"
-            # משתמשים בתגית RTL שמוגדרת ליישור לשמאל (תכף נוודא את זה)
-            self.log_text.insert('end', full_msg, ('RTL', level))
-        else:
-            full_msg = f"[{timestamp}] {clean_msg}\n"
-            self.log_text.insert('end', full_msg, level)
-
+        # פשוט מוסיפים את ההודעה כמו שהיא
+        full_msg = f"[{timestamp}] {clean_msg}\n"
+        self.log_text.insert('end', full_msg, level)
         self.log_text.see('end')
 
     def manage_groups_placeholder(self):
-        messagebox.showinfo("בקרוב", "ניהול קבוצות יהיה זמין בגרסה הבאה!")
+        """פותח חלון ניהול קבוצות"""
+        from groups_dialog import GroupsDialog
 
-    # --- לוגיקה ---
+        # האם המערכת פעילה?
+        read_only = self.listener.is_listening
+
+        # פתיחת חלון
+        GroupsDialog(self.root, read_only=read_only)
+
+    def open_settings(self):
+        """פותח חלון הגדרות"""
+        from settings_dialog import SettingsDialog
+        SettingsDialog(self.root)
+
 
     def start_listening(self):
         if self.listener.is_listening: return
@@ -285,6 +286,7 @@ class GuardianGUI:
         threading.Thread(target=update, daemon=True).start()
 
     def show_apartments(self):
+        # שליפת נתונים
         posts = self.db.get_all_posts(relevant_only=True, limit=50)
 
         if not posts:
@@ -293,59 +295,146 @@ class GuardianGUI:
 
         window = tk.Toplevel(self.root)
         window.title("📋 דירות שנמצאו")
-        window.geometry("1000x600")
+        window.geometry("1100x650")
+        window.configure(bg=COLORS['bg'])
 
-        scrollbar = ttk.Scrollbar(window)
+        # --- מסגרת לטבלה ---
+        frame_table = tk.Frame(window, bg=COLORS['bg'])
+        frame_table.pack(fill='both', expand=True, padx=20, pady=20)
+
+        # --- עיצוב (Style) ---
+        style = ttk.Style()
+        style.theme_use('clam')  # ערכת נושא שמאפשרת שינויי צבע
+
+        # 1. עיצוב כותרות
+        style.configure("Treeview.Heading",
+                        font=('Segoe UI', 11, 'bold'),
+                        background=COLORS['secondary'],
+                        foreground='white',
+                        relief='flat')
+
+        # 2. עיצוב שורות
+        style.configure("Treeview",
+                        rowheight=35,
+                        font=('Segoe UI', 10),
+                        background='white',
+                        fieldbackground='white',
+                        borderwidth=0)
+
+        style.map("Treeview",
+                  background=[('selected', COLORS['accent'])],
+                  foreground=[('selected', 'white')])
+
+        # 3. --- עיצוב פס גלילה (Scrollbar) עדין ---
+        style.configure("Vertical.TScrollbar",
+                        background='#bdc3c7',  # צבע הידית (אפור בהיר ועדין)
+                        troughcolor=COLORS['bg'],  # צבע המסלול (זהה לרקע - נראה שקוף)
+                        bordercolor=COLORS['bg'],  # מעלים את המסגרת
+                        lightcolor=COLORS['bg'],  # מעלים הצללות
+                        darkcolor=COLORS['bg'],  # מעלים הצללות
+                        arrowcolor=COLORS['text'],  # צבע החצים (אפור כהה)
+                        relief='flat')  # מראה שטוח ללא תלת-ממד
+
+        # כשעוברים עם העכבר על פס הגלילה - הוא יהפוך לכחול
+        style.map("Vertical.TScrollbar",
+                  background=[('active', COLORS['accent'])])
+
+        # יצירת פס הגלילה עם העיצוב החדש
+        scrollbar = ttk.Scrollbar(frame_table, orient="vertical", style="Vertical.TScrollbar")
         scrollbar.pack(side='right', fill='y')
 
-        columns = ('author', 'city', 'price', 'rooms', 'phone', 'date', 'link')
-        tree = ttk.Treeview(window, columns=columns, show='headings', yscrollcommand=scrollbar.set)
+        # הגדרת העמודות - עם קבוצה! ← חדש!
+        columns = ('index', 'author', 'city', 'price', 'rooms', 'phone', 'group', 'date', 'link')
+        tree = ttk.Treeview(frame_table, columns=columns, show='headings', yscrollcommand=scrollbar.set)
 
-        style = ttk.Style()
-        style.configure("Treeview.Heading", font=('Segoe UI', 10, 'bold'))
-        style.configure("Treeview", rowheight=30, font=('Segoe UI', 10))
+        # חיבור הגלילה לטבלה
+        scrollbar.config(command=tree.yview)
+
+        # --- כותרות ורוחב עמודות ---
+        tree.heading('index', text='#', anchor='center')
+        tree.column('index', width=40, anchor='center', stretch=False)
 
         tree.heading('author', text='מפרסם', anchor='e')
-        tree.heading('city', text='עיר', anchor='e')
-        tree.heading('price', text='מחיר', anchor='e')
-        tree.heading('rooms', text='חדרים', anchor='center')
-        tree.heading('phone', text='טלפון', anchor='e')
-        tree.heading('date', text='תאריך', anchor='center')
+        tree.column('author', width=130, anchor='e')
 
-        tree.column('author', width=120, anchor='e')
-        tree.column('city', width=150, anchor='e')
-        tree.column('price', width=100, anchor='e')
-        tree.column('rooms', width=80, anchor='center')
-        tree.column('phone', width=120, anchor='e')
-        tree.column('date', width=150, anchor='center')
+        tree.heading('city', text='עיר', anchor='e')
+        tree.column('city', width=140, anchor='e')
+
+        tree.heading('price', text='מחיר', anchor='e')
+        tree.column('price', width=110, anchor='e')
+
+        tree.heading('rooms', text='חדרים', anchor='center')
+        tree.column('rooms', width=70, anchor='center')
+
+        tree.heading('phone', text='טלפון', anchor='e')
+        tree.column('phone', width=110, anchor='e')
+
+        tree.heading('group', text='קבוצה', anchor='e')
+        tree.column('group', width=150, anchor='e')
+
+        tree.heading('date', text='תאריך', anchor='center')
+        tree.column('date', width=140, anchor='center')
+
+        tree.heading('link', text='Link', anchor='w')
         tree.column('link', width=0, stretch=False)
 
-        scrollbar.config(command=tree.yview)
-        tree.pack(padx=10, pady=10, fill='both', expand=True)
+        tree.pack(fill='both', expand=True)
 
-        for post in posts:
-            author = post['author'] or "לא צוין"
-            city = post['city'] or "לא צוין"
-            price = f"₪{post['price']}" if post['price'] else "לא צוין"
-            rooms = post['rooms'] or "לא צוין"
-            phone = post['phone'] or "לא צוין"
+        # --- צבעי זברה ---
+        tree.tag_configure('oddrow', background='white')
+        tree.tag_configure('evenrow', background='#f4f6f7')
+
+        # --- מילוי נתונים ---
+        for i, post in enumerate(posts):
+            author = post['author'] or "-"
+            city = post['city'] or "-"
+
+            price_raw = post['price']
+            if price_raw:
+                try:
+                    clean_num = int(str(price_raw).replace(',', '').replace('.', ''))
+                    price = f"₪{clean_num:,}"
+                except:
+                    price = str(price_raw)
+            else:
+                price = "-"
+
+            rooms = post['rooms'] or "-"
+            phone = post['phone'] or "-"
+            group = post['group_name'] or "-"  # ✨ הוסף את השורה הזו!
             date = post['scanned_at'][:16] if post['scanned_at'] else ""
             link = post['post_url']
 
-            tree.insert('', 'end', values=(author, city, price, rooms, phone, date, link))
+            row_tag = 'evenrow' if i % 2 == 0 else 'oddrow'
+            tree.insert('', 'end', values=(i + 1, author, city, price, rooms, phone, group, date, link),
+                        tags=(row_tag,))
 
+        # --- אינטראקציה ---
         def on_double_click(event):
-            item = tree.selection()
-            if not item: return
-            values = tree.item(item, "values")
-            url = values[6]
-            if url and "http" in url:
-                webbrowser.open(url)
+            try:
+                item = tree.selection()
+                if not item: return
+                values = tree.item(item, "values")
+                url = values[8]
+                print(f"Opening: {url}")
+                if url and "http" in url:
+                    webbrowser.open(url)
+                else:
+                    messagebox.showwarning("שגיאה", "לא נמצא קישור תקין")
+            except Exception as e:
+                print(f"Error: {e}")
 
         tree.bind("<Double-1>", on_double_click)
 
-        tk.Label(window, text="💡 דאבל-קליק לפתיחת פוסט", fg="gray", font=('Segoe UI', 9)).pack(pady=5)
-        tk.Button(window, text="סגור", command=window.destroy).pack(pady=5)
+        # --- Footer ---
+        footer_frame = tk.Frame(window, bg=COLORS['bg'])
+        footer_frame.pack(fill='x', pady=10)
+
+        tk.Label(footer_frame, text="💡 דאבל-קליק לפתיחת פוסט בדפדפן",
+                 bg=COLORS['bg'], fg=COLORS['text_light'], font=('Segoe UI', 9)).pack()
+
+        tk.Button(footer_frame, text="סגור חלון", command=window.destroy,
+                  bg='white', fg=COLORS['text'], relief='flat', bd=1).pack(pady=5)
 
     def export_csv(self):
         filename = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV", "*.csv")])

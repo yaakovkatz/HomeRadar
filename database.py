@@ -5,13 +5,28 @@ database.py - ניהול דאטאבייס SQLite
 
 import sqlite3
 from datetime import datetime
-import os
 import re
+import json
+import os
+from dotenv import load_dotenv  # ← הוסף כאן!
+
+load_dotenv()  # ← הוסף!
+
+from ai_agents import AIAgents
+
 
 class PostDatabase:
     def __init__(self, db_path="posts.db"):
         self.db_path = db_path
         self._create_tables()
+        self._load_locations()
+
+        # אתחול AI Agents ← הוסף את זה!
+        try:
+            self.ai_agents = AIAgents()
+        except Exception as e:
+            print(f"⚠️ AI Agents לא זמינים: {e}")
+            self.ai_agents = None
 
     def _create_tables(self):
         conn = sqlite3.connect(self.db_path)
@@ -30,6 +45,14 @@ class PostDatabase:
                 group_name TEXT,
                 blacklist_match TEXT,
                 is_relevant INTEGER DEFAULT 1,
+
+                -- שדות AI חדשים ← הוסף!
+                category TEXT DEFAULT 'RELEVANT',
+                is_broker INTEGER DEFAULT 0,
+                ai_confidence REAL,
+                ai_reason TEXT,
+                ai_failed INTEGER DEFAULT 0,
+
                 scanned_at DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
@@ -38,31 +61,140 @@ class PostDatabase:
         conn.commit()
         conn.close()
 
+    # =================================================================
+    #              טוען רשימות ערים, שכונות ו-landmarks מקובץ JSON
+    # =================================================================
+    def _load_locations(self):
+
+        try:
+            # נתיב לקובץ JSON
+            locations_file = os.path.join(os.path.dirname(__file__), 'data', 'locations.json')
+
+            # טעינת הקובץ
+            with open(locations_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            # שמירה כ-attributes
+            self.cities = data['cities']
+            self.neighborhoods = data['neighborhoods']
+            self.landmarks = data['landmarks']
+            self.neighborhood_context = data['context_patterns']['neighborhood_context']
+
+            print(
+                f"✅ נטענו {len(self.cities)} ערים, {len(self.neighborhoods)} קבוצות שכונות, {len(self.landmarks)} landmarks")
+
+        except FileNotFoundError:
+            print("⚠️ קובץ locations.json לא נמצא! משתמש ברשימות ברירת מחדל")
+            # רשימות גיבוי בסיסיות
+            self.cities = ['ירושלים', 'תל אביב', 'חיפה']
+            self.neighborhoods = {}
+            self.landmarks = {}
+            self.neighborhood_context = r'(?:רחוב|שכונת|אזור)'
+
+        except Exception as e:
+            print(f"❌ שגיאה בטעינת locations.json: {e}")
+            self.cities = []
+            self.neighborhoods = {}
+            self.landmarks = {}
+            self.neighborhood_context = r'(?:רחוב|שכונת|אזור)'
+
     def save_post(self, post_data):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         try:
-            details = self.extract_details(post_data.get('content', ''))
+            content = post_data.get('content', '')
+            author = post_data.get('author', '')
+
+            # =========================================
+            # Agent 1: סינון (תמיד רץ!) - עם תמונות
+            # =========================================
+            ai_result = None
+            images = post_data.get('images', [])  # ← חדש! תפיסת תמונות
+
+            if self.ai_agents:
+                try:
+                    # שליחת תמונות ל-AI
+                    ai_result = self.ai_agents.classify_post(content, author, images)  # ← חדש!
+
+                    # הצגת תוצאה
+                    if images:
+                        print(
+                            f"  🤖 Agent 1 (עם {len(images)} תמונות): {ai_result['category']} (confidence: {ai_result['confidence']:.2f})")
+                    else:
+                        print(f"  🤖 Agent 1: {ai_result['category']} (confidence: {ai_result['confidence']:.2f})")
+
+                except Exception as e:
+                    print(f"  ❌ Agent 1 failed: {e}")
+
+            # בדיקה: האם לסנן?
+            if ai_result and ai_result['category'] != 'RELEVANT':
+                print(f"  🔴 סונן ({ai_result['category']}): {ai_result['reason']}")
+                return False  # לא שומרים!
+
+            # =========================================
+            # Regex: חילוץ ראשוני
+            # =========================================
+            details = self.extract_details(content)
+
+            # =========================================
+            # Agent 2: מילוי חסרים (אם צריך)
+            # =========================================
+            needs_ai = (not details['price'] or not details['city'])
+
+            if needs_ai and self.ai_agents:
+                try:
+                    print(f"  🤖 Agent 2: ממלא חסרים...")
+                    ai_details = self.ai_agents.extract_missing_details(content, details)
+
+                    # מיזוג: AI ממלא רק מה שחסר
+                    if not details['price'] and ai_details.get('price'):
+                        details['price'] = ai_details['price']
+                        print(f"    ✅ מחיר מ-AI: {details['price']}")
+
+                    if not details['city'] and ai_details.get('city'):
+                        details['city'] = ai_details['city']
+                        print(f"    ✅ עיר מ-AI: {details['city']}")
+
+                except Exception as e:
+                    print(f"  ❌ Agent 2 failed: {e}")
+
+            # =========================================
+            # שמירה ב-DB
+            # =========================================
             cursor.execute('''
-                           INSERT INTO posts (post_url, post_id, content, author, city, price, rooms, phone,
-                                              group_name, blacklist_match, is_relevant, scanned_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                           ''', (
-                               post_data.get('post_url'),
-                               post_data.get('post_id'),
-                               post_data.get('content'),
-                               post_data.get('author'),
-                               details['city'],
-                               details['price'],
-                               details['rooms'],
-                               details['phone'],
-                               post_data.get('group_name'),
-                               post_data.get('blacklist_match'),
-                               post_data.get('is_relevant', 1),
-                               post_data.get('scanned_at', datetime.now())
-                           ))
+                INSERT INTO posts (
+                    post_url, post_id, content, author, 
+                    city, price, rooms, phone,
+                    group_name, blacklist_match, is_relevant,
+                    category, is_broker, ai_confidence, ai_reason,
+                    scanned_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                post_data.get('post_url'),
+                post_data.get('post_id'),
+                content,
+                author,
+                details['city'],
+                details['price'],
+                details['rooms'],
+                details['phone'],
+                post_data.get('group_name'),
+                post_data.get('blacklist_match'),
+                post_data.get('is_relevant', 1),
+
+                # שדות AI
+                ai_result['category'] if ai_result else 'RELEVANT',
+                1 if (ai_result and ai_result['is_broker']) else 0,
+                ai_result['confidence'] if ai_result else None,
+                ai_result['reason'] if ai_result else None,
+
+                post_data.get('scanned_at', datetime.now())
+            ))
+
             conn.commit()
             return True
+
         except sqlite3.IntegrityError:
             return False
         except Exception as e:
@@ -70,197 +202,396 @@ class PostDatabase:
         finally:
             conn.close()
 
+    # =================================================================
+    #              שליפת מזהה הפוסט האחרון (למניעת כפילויות)
+    # =================================================================
     def get_last_post_id(self, group_name=None):
+        """
+        בודק מהו הפוסט האחרון שנשמר בדאטאבייס.
+        משמש כדי שנדע מאיזה פוסט להתחיל לסרוק ולא נסרוק פוסטים ישנים שוב.
+        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        if group_name:
-            cursor.execute('SELECT post_id FROM posts WHERE group_name = ? ORDER BY scanned_at DESC LIMIT 1', (group_name,))
-        else:
-            cursor.execute('SELECT post_id FROM posts ORDER BY scanned_at DESC LIMIT 1')
-        result = cursor.fetchone()
-        conn.close()
-        return result[0] if result else None
 
+        try:
+            if group_name:
+                # אם ביקשו קבוצה ספציפית - תביא את הכי חדש מאותה קבוצה
+                cursor.execute('SELECT post_id FROM posts WHERE group_name = ? ORDER BY scanned_at DESC LIMIT 1', (group_name,))
+            else:
+                # אחרת - תביא את הכי חדש בכללי
+                cursor.execute('SELECT post_id FROM posts ORDER BY scanned_at DESC LIMIT 1')
+
+            result = cursor.fetchone()
+
+            # אם נמצאה תוצאה תחזיר את ה-ID, אחרת תחזיר None
+            return result[0] if result else None
+
+        finally:
+            conn.close()
+
+    # =========================================================
+    #  שליפת כל הפוסטים (עבור התצוגה בטבלה)
+    #  relevant_only: האם להביא רק פוסטים שסומנו כרלוונטיים
+    # =========================================================
     def get_all_posts(self, relevant_only=True, limit=100):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+
+        # בניית השאילתה חלק-אחרי-חלק
         sql = 'SELECT * FROM posts '
         if relevant_only:
             sql += 'WHERE is_relevant = 1 '
         sql += 'ORDER BY scanned_at DESC LIMIT ?'
+
         cursor.execute(sql, (limit,))
+
+        # שליפת שמות העמודות (כדי שיהיו לנו "תוויות")
         columns = [description[0] for description in cursor.description]
         rows = cursor.fetchall()
+
         conn.close()
+
+        # המרת התוצאות למילון (כדי שנוכל לגשת לנתונים לפי שם העמודה)
         return [dict(zip(columns, row)) for row in rows]
 
     def get_stats(self):
+        # =========================================================
+        #  הפקת דוח סטטיסטיקות (כמה פוסטים נאספו, כמה רלוונטיים וכו')
+        # =========================================================
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute('SELECT COUNT(*) FROM posts')
-        total = cursor.fetchone()[0]
-        cursor.execute('SELECT COUNT(*) FROM posts WHERE is_relevant = 1')
-        relevant = cursor.fetchone()[0]
-        cursor.execute('SELECT COUNT(*) FROM posts WHERE blacklist_match IS NOT NULL')
-        blacklisted = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM posts WHERE DATE(scanned_at) = DATE('now')")
-        today = cursor.fetchone()[0]
-        conn.close()
-        return {'total': total, 'relevant': relevant, 'blacklisted': blacklisted, 'today': today}
+
+        try:
+            # 1. סה"כ פוסטים במערכת
+            cursor.execute('SELECT COUNT(*) FROM posts')
+            total = cursor.fetchone()[0]
+
+            # 2. כמה מסומנים כרלוונטיים (לא נמחקו/סוננו ידנית)
+            cursor.execute('SELECT COUNT(*) FROM posts WHERE is_relevant = 1')
+            relevant = cursor.fetchone()[0]
+
+            # 3. כמה סוננו אוטומטית ע"י המילים השחורות
+            cursor.execute('SELECT COUNT(*) FROM posts WHERE blacklist_match IS NOT NULL')
+            blacklisted = cursor.fetchone()[0]
+
+            # 4. כמה פוסטים חדשים נאספו היום
+            cursor.execute("SELECT COUNT(*) FROM posts WHERE DATE(scanned_at) = DATE('now')")
+            today = cursor.fetchone()[0]
+
+            # החזרת כל הנתונים כמילון מסודר
+            return {
+                'total': total,
+                'relevant': relevant,
+                'blacklisted': blacklisted,
+                'today': today
+            }
+
+        finally:
+            conn.close()
 
     def get_week_stats(self): return self._get_period_stats(7)
     def get_month_stats(self): return self._get_period_stats(30)
 
     def _get_period_stats(self, days):
+        # =========================================================
+        #  פונקציית עזר פנימית לחישוב סטטיסטיקה לפי תקופת זמן
+        #  מקבלת מספר ימים (days) ומחזירה כמה רלוונטיים וכמה נחסמו
+        # =========================================================
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute(f"SELECT COUNT(*) FROM posts WHERE DATE(scanned_at) >= DATE('now', '-{days} days') AND is_relevant = 1")
-        relevant = cursor.fetchone()[0]
-        cursor.execute(f"SELECT COUNT(*) FROM posts WHERE DATE(scanned_at) >= DATE('now', '-{days} days') AND blacklist_match IS NOT NULL")
-        blacklisted = cursor.fetchone()[0]
-        conn.close()
-        return {'relevant': relevant, 'blacklisted': blacklisted}
 
+        try:
+            # שימוש ב-f-string כדי להכניס את מספר הימים לשאילתה
+            # המשמעות: "תביא לי פוסטים מהתאריך של (עכשיו פחות X ימים) והלאה"
+
+            # 1. ספירת רלוונטיים בתקופה
+            cursor.execute(
+                f"SELECT COUNT(*) FROM posts WHERE DATE(scanned_at) >= DATE('now', '-{days} days') AND is_relevant = 1")
+            relevant = cursor.fetchone()[0]
+
+            # 2. ספירת חסומים בתקופה
+            cursor.execute(
+                f"SELECT COUNT(*) FROM posts WHERE DATE(scanned_at) >= DATE('now', '-{days} days') AND blacklist_match IS NOT NULL")
+            blacklisted = cursor.fetchone()[0]
+
+            return {'relevant': relevant, 'blacklisted': blacklisted}
+
+        finally:
+            conn.close()
+
+
+    #=========================================================
+    #מחיקת פוסטים ישנים מהדאטאבייס (תחזוקה וניקוי)
+    #=========================================================
     def clear_old_posts(self, days=30):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM posts WHERE scanned_at < datetime('now', '-' || ? || ' days')", (days,))
-        deleted = cursor.rowcount
-        conn.commit()
-        conn.close()
-        return deleted
+        try:
+            # המטרה: למחוק כל מה שהתאריך שלו 'קטן' (ישן) מהיום פחות X ימים.
+            cursor.execute("DELETE FROM posts WHERE scanned_at < datetime('now', '-' || ? || ' days')", (days,))
 
+            # rowcount מחזיר את כמות השורות שהושפעו מהפקודה האחרונה.
+            deleted = cursor.rowcount
+            conn.commit()
+            return deleted
+        finally:
+            conn.close()
+
+    # =========================================================
+    #  ייצוא הנתונים לאקסל (CSV) לשיתוף חיצוני
+    # =========================================================
     def export_to_csv(self, filename="apartments_export.csv", relevant_only=True):
-        import pandas as pd
-        posts = self.get_all_posts(relevant_only=relevant_only, limit=10000)
-        if not posts: return False
-        df = pd.DataFrame(posts)
-        columns_order = ['id', 'content', 'post_url', 'author', 'group_name', 'blacklist_match', 'scanned_at']
-        existing_cols = [c for c in columns_order if c in df.columns]
-        df = df[existing_cols]
-        df.to_csv(filename, index=False, encoding='utf-8-sig')
-        return True
+
+        try:
+            import pandas as pd  # טוענים את ספריית הנתונים רק כשצריך אותה
+
+            # 1. שליפת הנתונים
+            posts = self.get_all_posts(relevant_only=relevant_only, limit=10000)
+            if not posts:
+                return False
+
+            # 2. המרה לטבלה של פנדס
+            df = pd.DataFrame(posts)
+
+            # 3. סידור עמודות (כדי שהחשובות יהיו בהתחלה)
+            columns_order = ['id', 'content', 'post_url', 'author', 'group_name', 'blacklist_match', 'scanned_at']
+            # הטריק הזה (List Comprehension) מוודא שאנחנו לא מבקשים עמודה שלא קיימת וגורמים לקריסה
+            existing_cols = [c for c in columns_order if c in df.columns]
+            df = df[existing_cols]
+
+            # 4. שמירה לקובץ
+            # index=False: לא שומר את המספרים הסידוריים של פנדס (0,1,2...) בצד
+            df.to_csv(filename, index=False, encoding='utf-8-sig')
+            return True
+
+        except Exception as e:
+            # זה קורה בדרך כלל אם הקובץ פתוח כבר באקסל והמחשב לא נותן לשמור עליו
+            print(f"שגיאה בייצוא לקובץ: {e}")
+            return False
 
     # =================================================================
-    #              מנוע החילוץ החכם (לוגיקה משופרת)
+    #              יצירת תצוגה מקוצרת ("כותרת") עבור הטבלה בממשק
     # =================================================================
 
     def extract_summary(self, content):
-        if not content: return ""
+
+        if not content:
+            return ""
+
+        # 1. שימוש במנוע ה-Regex כדי לחלץ את הפרטים החשובים
         details = self.extract_details(content)
+
         parts = []
         if details['city']: parts.append(details['city'])
         if details['price']: parts.append(f"{details['price']} ₪")
         if details['rooms']: parts.append(f"{details['rooms']} חד'")
 
+        # מחבר את החלקים עם קו מפריד יפה
         summary = " | ".join(parts)
+
+        # 2. מנגנון 'תוכנית גיבוי' (Fallback):
+        # אם ה-Regex לא הצליח לחלץ כלום (התקציר ריק או קצר מדי),
+        # ניקח את ה-50 תווים הראשונים של הפוסט המקורי כדי שלא תהיה שורה ריקה.
         if len(summary) < 5:
+            # מנקה ירידות שורה (\n) כדי שהכל יהיה בשורה אחת ישרה
             return content.replace('\n', ' ').strip()[:50] + "..."
+
         return summary
 
+    # =================================================================
+    # מחלץ פרטים - גרסה משודרגת
+    # =================================================================
     def extract_details(self, content):
         """
-        מחלץ פרטים - גרסה משודרגת (תומכת במעלה אדומים + מחירים עם נקודות)
+        מחלץ פרטים - גרסה משופרת עם זיהוי עיר לפני רחוב
         """
+        #print(f"🔍 DEBUG Content: {repr(content[:300])}")
+
         if not content:
             return {'city': None, 'price': None, 'rooms': None, 'phone': None}
 
         details = {'city': None, 'price': None, 'rooms': None, 'phone': None}
         content_clean = content.replace('\n', ' ')
 
-        # --- 1. זיהוי רחוב חכם ---
-        street_pattern = r"(?:רחוב|רח'|רח|שדרות|סמטת|דרך)\s+([א-ת\s\"'0-9\(\)]+?)(?=\d{2,}|,|\.|-|–|:|ללא|בקרבת|ליד|קרוב|בין|מתאריך|$)"
-        matches = re.finditer(street_pattern, content_clean)
-        blacklist_words = ['שקט', 'קטן', 'מבוקש', 'פסטורלי', 'ללא מוצא', 'ראשי', 'הולנדי', 'חד סטרי', 'פנימי', 'משופץ',
-                           'מרווח']
 
-        for match in matches:
-            raw_candidate = match.group(1)
-            clean_candidate = re.sub(r'\(\d+\)', '', raw_candidate)
-            candidate = clean_candidate.strip(" ()-.,–:")
-            is_blacklisted = any(bad_word in candidate for bad_word in blacklist_words)
+        # 1. זיהוי מחיר
 
-            if not is_blacklisted and 2 < len(candidate) < 25 and not candidate.isdigit():
-                details['city'] = candidate
+        # תבנית 1: מספר (עם או בלי פסיקים) + סימן מטבע
+        price_patterns = [
+            # עם פסיקים/נקודות
+            r'(\d{1,3}(?:[,\.]\d{3})+)(?:\s+\w+){0,5}?\s*(?:₪|ש"ח|שח|שקלים)',
+            # בלי פסיקים (4-8 ספרות)
+            r'(\d{4,8})\s*(?:₪|ש"ח|שח|שקלים)'
+        ]
+
+        price_match = None
+        for pattern in price_patterns:
+            price_match = re.search(pattern, content)
+            if price_match:
                 break
 
-        # --- 2. זיהוי שכונה ---
-        if not details['city']:
-            area_pattern = r"(?:שכונת|בשכונת|איזור|אזור|ליד|בסמוך ל|בלב|במרכז)\s+([א-ת\s\"']+?)(?=\d|,|\.|-|–|:|ללא|שקט|מבוקש|בין|$)"
-            area_match = re.search(area_pattern, content_clean)
-            if area_match:
-                raw_val = area_match.group(1)
-                clean_val = re.sub(r'\(\d+\)', '', raw_val)
-                val = clean_val.strip(" ()-.,–:")
-                if 2 < len(val) < 25:
-                    details['city'] = val
-
-        # --- 3. זיהוי עוגנים ---
-        if not details['city']:
-            landmarks = {
-                'שוק מחנה יהודה': 'ירושלים (נחלאות)',
-                'הכותל': 'ירושלים (העתיקה)',
-                'מכון ויצמן': 'רחובות',
-                'סורוקה': 'באר שבע',
-                'האוניברסיטה': 'באר שבע (אונ\')',
-                'עזריאלי': 'תל אביב',
-                'שרונה': 'תל אביב',
-                'בצלאל': 'ירושלים',
-                'הטכניון': 'חיפה'
-            }
-            for landmark, location in landmarks.items():
-                if landmark in content:
-                    details['city'] = location
-                    break
-
-        # --- 4. זיהוי עיר (רשימה מורחבת!) ---
-        if not details['city']:
-            # הוספתי את מעלה אדומים ועוד כמה נפוצות
-            cities = [
-                'תל אביב', 'תל-אביב', 'ירושלים', 'חיפה', 'רחובות',
-                'נס ציונה', 'נס-ציונה', 'ראשון לציון', 'ראשל"צ',
-                'פתח תקווה', 'פתח-תקווה', 'פ"ת', 'נתניה', 'באר שבע',
-                'באר-שבע', 'בני ברק', 'בני-ברק', 'רמת גן', 'רמת-גן',
-                'חולון', 'אשדוד', 'אשקלון', 'הרצליה', 'כפר סבא',
-                'רעננה', 'מודיעין', 'בת ים', 'בת-ים', 'גבעתיים',
-                'מעלה אדומים', 'בית שמש', 'לוד', 'רמלה', 'קרית גת',
-                'עפולה', 'נהריה', 'עכו', 'טבריה', 'אילת'
-            ]
-            for city in cities:
-                if city in content:
-                    clean_city = city.replace('-', ' ').replace('"', '')
-                    details['city'] = clean_city
-                    break
-
-        # --- 5. מחיר (מנגנון כפול ומשופר) ---
-
-        # ניסיון א': חיפוש רגיל עם ש"ח (תומך גם בנקודות וגם בפסיקים)
-        # דוגמה: 3,000,000 ש"ח או 3.000.000 ₪
-        price_pattern_1 = r'(\d{1,3}(?:[,\.]\d{3})+)\s*(?:₪|ש"ח|שח)'
-        price_match = re.search(price_pattern_1, content)
-
-        # ניסיון ב': אם לא מצאנו, נחפש את המילה "מחיר" לפני המספר
-        # דוגמה: מחיר: 3.180.000
+        # תבנית 2: "מחיר" + מספר (עם או בלי פסיקים)
         if not price_match:
-            price_pattern_2 = r'(?:מחיר|במחיר)\s*[:\-]?\s*(\d{1,3}(?:[,\.]\d{3})+)'
-            price_match = re.search(price_pattern_2, content)
+            price_patterns_2 = [
+                # עם פסיקים
+                r'(?:מחיר|במחיר|מבוקש|ביקוש)(?:\s+\w+){0,3}?\s*[:\-]?\s*(\d{1,3}(?:[,\.]\d{3})+)',
+                # בלי פסיקים
+                r'(?:מחיר|במחיר|מבוקש|ביקוש)(?:\s+\w+){0,3}?\s*[:\-]?\s*(\d{4,8})'
+            ]
 
-        if price_match:
+            for pattern in price_patterns_2:
+                price_match = re.search(pattern, content)
+                if price_match:
+                    break
+
+        # תבנית 3: מספר גדול סתם (גיבוי) - רק עם פסיקים
+        if not price_match:
+            all_numbers = re.findall(r'(\d{1,3}(?:[,\.]\d{3})+)', content)
+            for num_str in all_numbers:
+                try:
+                    clean_num = int(num_str.replace(',', '').replace('.', ''))
+                    if 500000 <= clean_num <= 50000000:
+                        details['price'] = str(clean_num)
+                        break
+                except:
+                    pass
+
+        # עיבוד התוצאה
+        if price_match and not details['price']:
             try:
-                # מנקים גם פסיקים וגם נקודות כדי להפוך למספר
                 clean_price = price_match.group(1).replace(',', '').replace('.', '')
-                if 1000 <= int(clean_price) <= 50000000:
+                price_int = int(clean_price)
+                # בדיקת טווח סביר
+                if 1000 <= price_int <= 50000000:
                     details['price'] = clean_price
             except:
                 pass
 
-        # --- טלפון ---
-        phone_match = re.search(r'0\d{1,2}[-\s]?\d{3}[-\s]?\d{4}', content)
-        if phone_match:
-            details['phone'] = phone_match.group(0).replace(' ', '').replace('-', '')
+       # 2. זיהוי מיקום - עם עדיפות לעיר מפורשת!
 
-        # --- חדרים ---
-        rooms_match = re.search(r'(\d+\.?\d*)\s*חדר', content)
+        # 2.1 - חיפוש עיר מפורש (עדיפות עליונה!) ← חדש!
+        # תבניות: "בירושלים", "תל אביב רחוב", "למכירה במעלה אדומים"
+        explicit_city_patterns = [
+            r'ב(ירושלים|תל אביב|חיפה|מעלה אדומים|בית שמש|נס ציונה|ראשון לציון|פתח תקווה|באר שבע|בני ברק|רמת גן|נתניה|רחובות|הרצליה|רעננה|מודיעין|כפר סבא)',
+            r'(ירושלים|תל אביב|חיפה|מעלה אדומים|בית שמש|נס ציונה|ראשון לציון|פתח תקווה|באר שבע|בני ברק|רמת גן|נתניה|רחובות|הרצליה|רעננה|מודיעין|כפר סבא)\s+(?:רחוב|דירה|למכירה|להשכרה)'
+        ]
+
+        for pattern in explicit_city_patterns:
+            match = re.search(pattern, content)
+            if match:
+                details['city'] = match.group(1)
+                break
+
+        # 2.2 - רחוב (רק אם לא מצאנו עיר מפורשת!)
+        if not details['city']:
+            street_pattern = r"(?:רחוב|רח'|רח|שדרות|סמטת|דרך)\s+([א-ת\s\"'0-9\(\)]+?)(?=\d{2,}|,|\.|-|–|:|ללא|בקרבת|ליד|קרוב|בין|מתאריך|$)"
+            matches = re.finditer(street_pattern, content_clean)
+            blacklist_words = ['שקט', 'קטן', 'מבוקש', 'פסטורלי', 'ללא מוצא', 'ראשי', 'הולנדי', 'חד סטרי', 'פנימי',
+                               'משופץ', 'מרווח']
+            # רחובות שנראים כמו ערים - נדלג עליהם
+            city_like_streets = ['בית לחם', 'תל אביב', 'ירושלים', 'חיפה', 'רמת גן']
+
+            for match in matches:
+                raw_candidate = match.group(1)
+                clean_candidate = re.sub(r'\(\d+\)', '', raw_candidate)
+                candidate = clean_candidate.strip(" ()-.,–:")
+                is_blacklisted = any(bad_word in candidate for bad_word in blacklist_words)
+                is_city_like = any(city_name in candidate for city_name in city_like_streets)
+
+                if not is_blacklisted and not is_city_like and 2 < len(candidate) < 25 and not candidate.isdigit():
+                    details['city'] = candidate
+                    break
+
+        # 2.3 - ערים מלאות (רק עם הקשר!)
+        if not details['city']:
+            cities_sorted = sorted(self.cities, key=len, reverse=True)
+
+            for city in cities_sorted:
+                # 4 תבניות הקשר לערים
+                city_patterns = [
+                    r'ב' + re.escape(city),  # בירושלים
+                    r'[,\.]\s*' + re.escape(city),  # ..., ירושלים
+                    re.escape(city) + r'\s+(?:רחוב|דירה|למכירה)',  # ירושלים רחוב
+                    r'(?:עיר|בעיר)\s+' + re.escape(city)  # עיר ירושלים
+                ]
+
+                # בדיקה אם אחת מהתבניות תופסת
+                found = False
+                for pattern in city_patterns:
+                    if re.search(pattern, content):
+                        found = True
+                        break
+
+                if found:
+                    clean_city = city.replace('-', ' ').replace('"', '')
+                    details['city'] = clean_city
+                    break
+
+        # 2.4 - landmarks (עם הקשר!)
+        if not details['city']:
+            landmarks = self.landmarks
+
+
+            for landmark, location in landmarks.items():
+                # תבניות הקשר ל-landmarks (גמיש כמו ערים)
+                landmark_patterns = [
+                    r'ב' + re.escape(landmark),  # באיכילוב
+                    r'[,\.]\s*' + re.escape(landmark),  # ..., איכילוב
+                    r'(?:ליד|קרוב ל|סמוך ל)\s+' + re.escape(landmark)  # ליד איכילוב
+                ]
+
+                found = False
+                for pattern in landmark_patterns:
+                    if re.search(pattern, content):
+                        found = True
+                        break
+
+                if found:
+                    details['city'] = location
+                    break
+
+        # 2.5 - שכונות (רק עם הקשר מחמיר!)
+        if not details['city']:
+            locations = self.neighborhoods
+
+            # מילות הקשר לשכונות (מחמיר!)
+            # שימוש בהקשר מה-JSON
+            context_words = self.neighborhood_context
+
+            for city, neighborhoods in locations.items():
+                for neighborhood in neighborhoods:
+                    # חיפוש עם הקשר חובה!
+                    pattern = context_words + r'\s+' + re.escape(neighborhood)
+
+                    if re.search(pattern, content):
+                        # בדיקה מיוחדת ל"ארנונה"
+                        if neighborhood == 'ארנונה':
+                            tax_context = ['מ״ר ב', 'מטר ב', 'בתשלום', 'משלמים', 'רשום ב']
+                            is_tax = any(ctx in content for ctx in tax_context)
+                            if is_tax:
+                                continue
+
+                        details['city'] = f"{city} ({neighborhood})"
+                        break
+                if details['city']:
+                    break
+
+        # 3. טלפון
+
+        phone_patterns = [
+            r'0\d{1,2}[-\s\.]?\d{3}[-\s\.]?\d{4}',
+            r'\(0\d{1,2}\)\s?\d{3}[-\s]?\d{4}',
+            r'0\d{1,2}[-\s]?\d{3}[-\s]?\d{2}[-\s]?\d{2}'
+        ]
+
+        for pattern in phone_patterns:
+            phone_match = re.search(pattern, content)
+            if phone_match:
+                details['phone'] = re.sub(r'[^\d]', '', phone_match.group(0))
+                break
+
+        # 4. חדרים (תומך גם בקיצורים: חד', חד)
+        rooms_match = re.search(r'(\d+\.?\d*)\s*(?:חדר|חד\'|חד)', content)
         if rooms_match:
             details['rooms'] = rooms_match.group(1)
 

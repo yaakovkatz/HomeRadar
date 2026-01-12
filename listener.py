@@ -1,5 +1,6 @@
 """
 listener.py - מאזין רציף לפוסטים חדשים בפייסבוק
+גרסה מעודכנת: שימוש ב-SettingsManager
 """
 
 import time
@@ -10,6 +11,7 @@ from scraper import FacebookScraper
 from database import PostDatabase
 import json
 import os
+from settings_manager import SettingsManager
 
 
 class FacebookListener:
@@ -17,11 +19,16 @@ class FacebookListener:
 
     def __init__(self, config_path="config.json"):
         """אתחול המאזין"""
+        # ישן - נשאר לביטחון (נמחק בשלב 4)
         self.config = self._load_config(config_path)
+
+        # חדש - זה מה שנשתמש בו
+        self.settings = SettingsManager(config_path)
+
         self.db = PostDatabase()
         self.scraper = None
         self.is_listening = False
-        self.is_cleaning = False  # ← חדש! דגל ניקוי
+        self.is_cleaning = False
         self.stats = {
             'checks_today': 0,
             'new_posts': 0,
@@ -30,9 +37,10 @@ class FacebookListener:
             'next_check': None
         }
         self.status_callback = None
+        self.settings.on_change(self._on_settings_changed)
 
     def _load_config(self, config_path):
-        """טוען הגדרות"""
+        """טוען הגדרות - ישן, נשאר לביטחון"""
         if os.path.exists(config_path):
             with open(config_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
@@ -44,7 +52,7 @@ class FacebookListener:
         self.status_callback = callback
 
     def _log(self, message):
-        """מדפיס הודעה (ובעתיד - לקובץ log)"""
+        """מדפיס הודעה"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         full_message = f"[{timestamp}] {message}"
         print(full_message)
@@ -52,11 +60,40 @@ class FacebookListener:
         if self.status_callback:
             self.status_callback(full_message)
 
+    def _on_settings_changed(self, key, value):
+        """
+        נקרא אוטומטית כשהגדרה משתנתה
+
+        Args:
+            key: המפתח שהשתנה (למשל: 'listener.check_interval_min')
+            value: הערך החדש
+        """
+        self._log(f"🔄 הגדרה עודכנה: {key} = {value}")
+
+        # טיפול ספציפי לפי סוג ההגדרה
+        if key.startswith('listener.'):
+            self._log("✅ הגדרות ההאזנה עודכנו - ייכנסו לתוקף בבדיקה הבאה")
+
+        elif key.startswith('search_settings.blacklist'):
+            self._log("✅ Blacklist עודכן - ייכנס לתוקף בבדיקה הבאה")
+
+        elif key == 'groups_urls':
+            self._log("✅ רשימת קבוצות עודכנה - ייכנס לתוקף בבדיקה הבאה")
+
+        # אפשר להוסיף לוגיקה נוספת כאן...
+        # למשל: עדכון מיידי של משתנים
+
     def _is_active_hours(self):
         """בודק אם אנחנו בשעות פעילות"""
         now = datetime.now().time()
-        start_hour = self.config['listener']['active_hours_start']
-        end_hour = self.config['listener']['active_hours_end']
+
+        # חדש - משתמשים ב-settings
+        start_hour = self.settings.get('listener.active_hours_start', 8)
+        end_hour = self.settings.get('listener.active_hours_end', 23)
+
+        # ישן - מוערת
+        # start_hour = self.config['listener']['active_hours_start']
+        # end_hour = self.config['listener']['active_hours_end']
 
         start_time = dt_time(start_hour, 0)
         end_time = dt_time(end_hour, 0)
@@ -65,46 +102,43 @@ class FacebookListener:
 
     def _check_blacklist(self, content):
         """
-        בודק אם הפוסט מכיל מילה מה-blacklist
+        בודק אם הפוסט מכיל מילה מה-blacklist (עם תמיכה ב-whitelist)
 
         Returns:
             None אם תקין, או את המילה שנתפסה
         """
-        blacklist = self.config.get('blacklist', [])
         content_lower = content.lower()
 
+        # שלב 1: בדוק whitelist - אם יש התאמה, אל תסנן!
+        whitelist = self.settings.get('search_settings.whitelist', [])
+        for phrase in whitelist:
+            if phrase.lower() in content_lower:
+                # נמצאה ביטוי מה-whitelist - זה פוסט לגיטימי!
+                return None
+
+        # שלב 2: רק עכשיו בדוק blacklist
+        blacklist = self.settings.get('search_settings.blacklist', [])
         for word in blacklist:
             if word.lower() in content_lower:
-                return word
+                return word  # נמצאה מילה אסורה
 
         return None
 
     def _process_posts(self, posts, group_name):
         """
         מעבד רשימת פוסטים - בודק blacklist ושומר ב-DB
-
-        Args:
-            posts: רשימת פוסטים
-            group_name: שם הקבוצה
-
-        Returns:
-            (new_count, blacklisted_count)
         """
         last_known_id = self.db.get_last_post_id(group_name)
 
         new_count = 0
         blacklisted_count = 0
 
-        # עוברים על הפוסטים מהחדש לישן
         for post in posts:
-            # אם הגענו לפוסט שכבר ראינו - עוצרים
             if post['post_id'] == last_known_id:
                 break
 
-            # בדיקת blacklist
             blacklist_match = self._check_blacklist(post['content'])
 
-            # הכנת נתונים לשמירה
             post_data = {
                 'post_url': post['post_url'],
                 'post_id': post['post_id'],
@@ -116,7 +150,6 @@ class FacebookListener:
                 'scanned_at': datetime.now()
             }
 
-            # שמירה ב-DB
             saved = self.db.save_post(post_data)
 
             if saved:
@@ -130,13 +163,7 @@ class FacebookListener:
         return new_count, blacklisted_count
 
     def _ensure_browser_ready(self):
-        """
-        מוודא שהדפדפן פתוח ופעיל - חובה לפני כל בדיקה!
-
-        Returns:
-            True אם הדפדפן מוכן, False אחרת
-        """
-        # בדיקה 1: האם יש scraper?
+        """מוודא שהדפדפן פתוח ופעיל"""
         if not self.scraper:
             self._log("⚠️ אין scraper - יוצר חדש...")
             try:
@@ -148,7 +175,6 @@ class FacebookListener:
                 self._log(f"❌ נכשל ליצור דפדפן: {str(e)}")
                 return False
 
-        # בדיקה 2: האם הדרייבר קיים?
         if not self.scraper.driver:
             self._log("⚠️ אין driver - יוצר חדש...")
             try:
@@ -159,10 +185,8 @@ class FacebookListener:
                 self._log(f"❌ נכשל ליצור driver: {str(e)}")
                 return False
 
-        # בדיקה 3: האם הדפדפן חי?
         try:
             _ = self.scraper.driver.current_url
-            # אם הגענו לכאן - הדפדפן חי!
             return True
         except:
             self._log("⚠️ דפדפן לא מגיב - פותח מחדש...")
@@ -178,43 +202,73 @@ class FacebookListener:
                 return False
 
     def _single_check(self):
-        """מבצע בדיקה בודדת"""
-        group_url = self.config.get('group_url')
-        group_name = "קבוצה ראשית"
-        posts_to_read = self.config['listener']['posts_to_read']
+        """מבצע בדיקה בודדת - סורק את כל הקבוצות"""
 
-        self._log("🔍 מתחיל בדיקה...")
+        self.settings.reload()  # ← הוסף שורה זו!
 
-        # ===== חובה: וודא שיש דפדפן! =====
+        # טעינת רשימת קבוצות
+        groups_urls = self.settings.get('groups_urls', [])
+        groups_names = self.settings.get('groups_names', [])
+        posts_to_read = self.settings.get('listener.posts_to_read', 3)
+
+        if not groups_urls:
+            self._log("❌ לא הוגדרו קבוצות ב-config!")
+            return
+
+        # ודא שיש מספר שווה של שמות
+        if len(groups_names) < len(groups_urls):
+            # השלם שמות חסרים
+            for i in range(len(groups_names), len(groups_urls)):
+                groups_names.append(f"קבוצה {i + 1}")
+
         if not self._ensure_browser_ready():
             self._log("❌ אין דפדפן פעיל - מדלג על בדיקה זו")
             return
-        # ====================================
 
-        try:
-            # קריאת פוסטים
-            posts = self.scraper.quick_read_posts(group_url, max_posts=posts_to_read)
+        # ========================================
+        # לולאה על כל הקבוצות! ← חדש!
+        # ========================================
+        total_new = 0
+        total_filtered = 0
 
-            if not posts:
-                self._log("⚠️ לא נמצאו פוסטים")
-                return
+        for idx, group_url in enumerate(groups_urls):
+            group_name = groups_names[idx]
 
-            self._log(f"📊 נמצאו {len(posts)} פוסטים בעמוד")
+            self._log(f"🔍 סורק קבוצה: {group_name}")
 
-            # עיבוד
-            new_count, blacklisted_count = self._process_posts(posts, group_name)
+            try:
+                # סריקת הקבוצה
+                posts = self.scraper.quick_read_posts(group_url, max_posts=posts_to_read)
 
-            # עדכון סטטיסטיקות
-            self.stats['new_posts'] += new_count
-            self.stats['blacklisted'] += blacklisted_count
-            self.stats['checks_today'] += 1
-            self.stats['last_check'] = datetime.now()
+                if not posts:
+                    self._log(f"⚠️ לא נמצאו פוסטים בקבוצה '{group_name}'")
+                    continue
 
-            self._log(f"✅ הסתיים: {new_count} חדשים ({blacklisted_count} סוננו)")
+                self._log(f"📊 נמצאו {len(posts)} פוסטים בקבוצה '{group_name}'")
 
-        except Exception as e:
-            self._log(f"❌ שגיאה בבדיקה: {str(e)}")
-            # נסה לאתחל דפדפן למקרה הבא
+                # עיבוד פוסטים
+                new_count, blacklisted_count = self._process_posts(posts, group_name)
+
+                # צבירת סטטיסטיקות
+                total_new += new_count
+                total_filtered += blacklisted_count
+
+                self._log(f"✅ קבוצה '{group_name}': {new_count} חדשים ({blacklisted_count} סוננו)")
+
+            except Exception as e:
+                self._log(f"❌ שגיאה בסריקת '{group_name}': {str(e)}")
+                continue
+
+        # עדכון סטטיסטיקות כלליות
+        self.stats['new_posts'] += total_new
+        self.stats['blacklisted'] += total_filtered
+        self.stats['checks_today'] += 1
+        self.stats['last_check'] = datetime.now()
+
+        self._log(f"🎯 סיום מחזור: {total_new} פוסטים חדשים סה״כ ({total_filtered} סוננו)")
+
+        # טיפול בשגיאות דפדפן
+        if not self.scraper or not self.scraper.driver:
             try:
                 if self.scraper:
                     self.scraper.close()
@@ -224,18 +278,15 @@ class FacebookListener:
                 pass
 
     def start_listening(self):
-        """מתחיל האזנה רציפה (ב-thread)"""
-        # בדיקה 1: כבר מאזין?
+        """מתחיל האזנה רציפה"""
         if self.is_listening:
             self._log("⚠️ כבר מאזין!")
             return False
 
-        # בדיקה 2: מנקה כרגע?
         if self.is_cleaning:
             self._log("⚠️ מנקה משאבים - חכה קצת...")
             return False
 
-        # בדיקה 3: יש דפדפן ישן?
         if self.scraper and self.scraper.driver:
             self._log("🧹 מוצא דפדפן ישן - סוגר...")
             try:
@@ -253,7 +304,6 @@ class FacebookListener:
             'next_check': None
         }
 
-        # פתיחת דפדפן פעם אחת בהתחלה!
         self._log("🚀 פותח דפדפן חדש...")
         try:
             self.scraper = FacebookScraper()
@@ -274,30 +324,33 @@ class FacebookListener:
         """הלולאה הראשית של ההאזנה"""
         try:
             while self.is_listening:
-                # בדיקת שעות פעילות
                 if not self._is_active_hours():
-                    now = datetime.now().time()
-                    start_hour = self.config['listener']['active_hours_start']
-                    self._log(f"😴 מחוץ לשעות פעילות (08:00-23:00) - ישן עד {start_hour}:00")
+                    # חדש - משתמשים ב-settings
+                    start_hour = self.settings.get('listener.active_hours_start', 8)
 
-                    # חכה שעה ובדוק שוב
+                    # ישן - מוערת
+                    # start_hour = self.config['listener']['active_hours_start']
+
+                    self._log(f"😴 מחוץ לשעות פעילות - ישן עד {start_hour}:00")
                     time.sleep(3600)
                     continue
 
-                # ביצוע בדיקה
                 self._single_check()
 
-                # חישוב זמן המתנה אקראי (6-8 דקות = 360-480 שניות)
-                min_interval = self.config['listener']['check_interval_min']
-                max_interval = self.config['listener']['check_interval_max']
-                wait_time = random.randint(min_interval, max_interval)
+                # חדש - משתמשים ב-settings
+                min_interval = self.settings.get('listener.check_interval_min', 360)
+                max_interval = self.settings.get('listener.check_interval_max', 480)
 
+                # ישן - מוערת
+                # min_interval = self.config['listener']['check_interval_min']
+                # max_interval = self.config['listener']['check_interval_max']
+
+                wait_time = random.randint(min_interval, max_interval)
                 self.stats['next_check'] = datetime.now().timestamp() + wait_time
 
                 minutes = wait_time // 60
                 self._log(f"⏰ ממתין {minutes} דקות עד הבדיקה הבאה...")
 
-                # המתנה (עם בדיקה כל 10 שניות אם לעצור)
                 for _ in range(wait_time // 10):
                     if not self.is_listening:
                         break
@@ -307,13 +360,12 @@ class FacebookListener:
             self._log(f"❌ שגיאה קריטית בלולאה: {str(e)}")
 
         finally:
-            # סיום - סגור דפדפן בכל מקרה!
             self._log("🛑 עצרתי להאזין")
             self._cleanup()
 
     def _cleanup(self):
-        """ניקוי משאבים - סגירת דפדפן וכו'"""
-        self.is_cleaning = True  # ← סימון שמנקה
+        """ניקוי משאבים"""
+        self.is_cleaning = True
 
         if self.scraper:
             try:
@@ -325,10 +377,8 @@ class FacebookListener:
             finally:
                 self.scraper = None
 
-        import time
-        time.sleep(1)  # המתן שנייה לוודא שהכל נסגר
-
-        self.is_cleaning = False  # ← סיימנו לנקות
+        time.sleep(1)
+        self.is_cleaning = False
         self._log("✓ ניקוי הושלם")
 
     def stop_listening(self):
@@ -340,8 +390,6 @@ class FacebookListener:
         self._log("⏸️ עוצר האזנה...")
         self.is_listening = False
 
-        # חכה שהניקוי יסתיים (מקסימום 10 שניות)
-        import time
         wait_count = 0
         while self.is_cleaning and wait_count < 10:
             time.sleep(1)
@@ -351,15 +399,10 @@ class FacebookListener:
             self._log("⚠️ ניקוי עדיין בתהליך - אבל ממשיך")
 
     def force_cleanup(self):
-        """ניקוי כפוי - למקרה של יציאה מהתוכנה"""
+        """ניקוי כפוי"""
         self._log("🧹 ניקוי כפוי...")
         self.is_listening = False
-
-        # חכה רגע שהלולאה תעצור
-        import time
         time.sleep(2)
-
-        # נקה בכוח
         self._cleanup()
 
     def get_stats(self):
