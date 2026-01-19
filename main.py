@@ -297,11 +297,9 @@ class GuardianGUI:
                     pass
 
         # 2. מיקום מלא (עיר + שכונה/רחוב)
-        # קודם כל, חלץ מידע מה-DB!
-        details = self.db.extract_details(post_data.get('content', ''))
-
-        city = details.get('city', '')
-        loc = details.get('location', '')
+        # המידע כבר מגיע מה-listener (enriched_data)
+        city = post_data.get('city', '')
+        loc = post_data.get('location', '')
 
         if city and loc:
             location = f"{city}, {loc}"
@@ -310,7 +308,7 @@ class GuardianGUI:
         elif loc:
             location = loc
         else:
-            location = "ירושלים והסביבה"
+            location = "לא צוין"
 
         # קיצור טקסט ארוך
         if len(location) > 25:
