@@ -591,12 +591,22 @@ class PostDatabase:
         if not details['city']:
             for city, neighborhoods in self.neighborhoods.items():
                 for neighborhood in neighborhoods:
-                    # חיפוש עם הקשר
-                    pattern = r'(?:ב|שכונת|אזור)\s+' + re.escape(neighborhood)
-                    if re.search(pattern, content):
-                        details['city'] = city
-                        details['location'] = neighborhood
+                    # חיפוש עם הקשרים מרובים
+                    patterns = [
+                        r'(?:ב|שכונת|אזור)\s+' + re.escape(neighborhood),  # בקטמון, שכונת קטמון
+                        r'(?:מיקום|נמצא|ממוקם)[:\s]+' + re.escape(neighborhood),  # מיקום: קטמון
+                        r'[,\.]\s*' + re.escape(neighborhood) + r'(?:\s|,|\.)',  # , קטמון,
+                    ]
+
+                    for pattern in patterns:
+                        if re.search(pattern, content):
+                            details['city'] = city
+                            details['location'] = neighborhood
+                            break
+
+                    if details['city']:
                         break
+
                 if details['city']:
                     break
 
