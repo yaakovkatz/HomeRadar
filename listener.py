@@ -37,6 +37,7 @@ class FacebookListener:
             'next_check': None
         }
         self.status_callback = None
+        self.new_post_callback = None
         self.settings.on_change(self._on_settings_changed)
 
     def _load_config(self, config_path):
@@ -51,14 +52,20 @@ class FacebookListener:
         """מגדיר פונקציה לעדכון סטטוס בממשק"""
         self.status_callback = callback
 
+    def set_new_post_callback(self, callback):
+        """מגדיר פונקציה שתופעל כשנמצא פוסט חדש"""
+        self.new_post_callback = callback
+
     def _log(self, message):
-        """מדפיס הודעה"""
+        """מדפיס הודעה (מונע כפילויות אם הממשק הגרפי מחובר)"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         full_message = f"[{timestamp}] {message}"
-        print(full_message)
 
+        # התיקון: אם יש ממשק גרפי - שלח אליו ושתוק. אחרת - תדפיס.
         if self.status_callback:
             self.status_callback(full_message)
+        else:
+            print(full_message)
 
     def _on_settings_changed(self, key, value):
         """
@@ -125,9 +132,7 @@ class FacebookListener:
         return None
 
     def _process_posts(self, posts, group_name):
-        """
-        מעבד רשימת פוסטים - בודק blacklist ושומר ב-DB
-        """
+        """מעבד רשימת פוסטים - בודק blacklist ושומר ב-DB"""
         last_known_id = self.db.get_last_post_id(group_name)
 
         new_count = 0
@@ -144,6 +149,9 @@ class FacebookListener:
                 'post_id': post['post_id'],
                 'content': post['content'],
                 'author': post['author'],
+                'price': post.get('price'),
+                'rooms': post.get('rooms'),
+                'city': post.get('city'),
                 'group_name': group_name,
                 'blacklist_match': blacklist_match,
                 'is_relevant': 1 if blacklist_match is None else 0,
@@ -160,7 +168,18 @@ class FacebookListener:
                 else:
                     self._log(f"  🟢 חדש: '{post['content'][:50]}...'")
 
-        return new_count, blacklisted_count
+                    if self.new_post_callback:
+                        details = self.db.extract_details(post['content'])
+                        enriched_data = {
+                            **post_data,
+                            'price': details.get('price'),
+                            'rooms': details.get('rooms'),
+                            'city': details.get('city'),
+                            'location': details.get('location')
+                        }
+                        self.new_post_callback(enriched_data)
+
+        return new_count, blacklisted_count  # ← וודא שזה קיים!
 
     def _ensure_browser_ready(self):
         """מוודא שהדפדפן פתוח ופעיל"""
@@ -204,7 +223,11 @@ class FacebookListener:
     def _single_check(self):
         """מבצע בדיקה בודדת - סורק את כל הקבוצות"""
 
-        self.settings.reload()  # ← הוסף שורה זו!
+        self.settings.reload()
+
+        print("\n" + "=" * 70)
+        print(f"🔄 מחזור סריקה חדש - {datetime.now().strftime('%H:%M:%S')}")
+        print("=" * 70)
 
         # טעינת רשימת קבוצות
         groups_urls = self.settings.get('groups_urls', [])
@@ -265,7 +288,9 @@ class FacebookListener:
         self.stats['checks_today'] += 1
         self.stats['last_check'] = datetime.now()
 
+        print("\n" + "=" * 70)
         self._log(f"🎯 סיום מחזור: {total_new} פוסטים חדשים סה״כ ({total_filtered} סוננו)")
+        print("=" * 70)
 
         # טיפול בשגיאות דפדפן
         if not self.scraper or not self.scraper.driver:
@@ -350,6 +375,7 @@ class FacebookListener:
 
                 minutes = wait_time // 60
                 self._log(f"⏰ ממתין {minutes} דקות עד הבדיקה הבאה...")
+                print("=" * 70 + "\n")
 
                 for _ in range(wait_time // 10):
                     if not self.is_listening:

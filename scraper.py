@@ -129,6 +129,19 @@ class FacebookScraper:
                     except:
                         content = ""
 
+                    # ========================================
+                    # ✨ סינון פרסומות רשמיות (גלובלי ומקצועי)
+                    # ========================================
+
+                    post_html = post.get_attribute('innerHTML')
+
+                    if 'sponsored' in post_html.lower() or 'ממומן' in post_html.lower():
+                        print(f"⚡ פרסומת רשמית - דילוג על פוסט #{idx}")
+                        continue
+
+                    # ✅ אם הגענו לכאן - זה לא פרסומת רשמית
+                    # השאר ל-AI לטפל בספאם ומתווכים מוסתרים
+
                     # קישור
                     post_url = "לא נמצא"
                     post_id = None

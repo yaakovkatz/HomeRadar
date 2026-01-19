@@ -20,6 +20,7 @@ class PostDatabase:
         self.db_path = db_path
         self._create_tables()
         self._load_locations()
+        self._compile_location_patterns()
 
         # אתחול AI Agents ← הוסף את זה!
         try:
@@ -39,6 +40,7 @@ class PostDatabase:
                 content TEXT,
                 author TEXT,
                 city TEXT,
+                location TEXT,
                 price TEXT,
                 rooms TEXT,
                 phone TEXT,
@@ -98,10 +100,46 @@ class PostDatabase:
             self.landmarks = {}
             self.neighborhood_context = r'(?:רחוב|שכונת|אזור)'
 
+    def _compile_location_patterns(self):
+        """מקמפל regex patterns לביצועים מקסימליים"""
+
+        if self.cities:
+            cities_pattern = '|'.join([re.escape(city) for city in self.cities])
+            # הסר \b - לא עובד עם עברית!
+            self.cities_regex = re.compile(rf'({cities_pattern})', re.IGNORECASE)
+        else:
+            self.cities_regex = None
+
+        # 2. Patterns לשכונות (לפי עיר)
+        self.neighborhoods_regex = {}
+        for city, neighborhoods in self.neighborhoods.items():
+            if neighborhoods:
+                pattern = '|'.join([re.escape(n) for n in neighborhoods])
+                self.neighborhoods_regex[city] = re.compile(rf'\b({pattern})\b', re.IGNORECASE)
+
+        # 3. Pattern ללנדמרקס
+        if self.landmarks:
+            landmarks_pattern = '|'.join([re.escape(lm) for lm in self.landmarks.keys()])
+            self.landmarks_regex = re.compile(rf'\b({landmarks_pattern})\b', re.IGNORECASE)
+        else:
+            self.landmarks_regex = None
+
+        print(f"✅ קומפלו {len(self.cities)} ערים, {len(self.neighborhoods_regex)} קבוצות שכונות")
+
     def save_post(self, post_data):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         try:
+
+            # =========================================
+            # בדיקה ראשונית: האם הפוסט כבר קיים?
+            # =========================================
+            post_url = post_data.get('post_url')
+            if post_url:
+                cursor.execute('SELECT id FROM posts WHERE post_url = ?', (post_url,))
+                if cursor.fetchone():
+                    return False  # פוסט כבר קיים - לא ממשיכים!
+
             content = post_data.get('content', '')
             author = post_data.get('author', '')
 
@@ -126,20 +164,55 @@ class PostDatabase:
                 except Exception as e:
                     print(f"  ❌ Agent 1 failed: {e}")
 
-            # בדיקה: האם לסנן?
-            if ai_result and ai_result['category'] != 'RELEVANT':
+            # בדיקה: האם לסנן? (אבל נשמור בכל מקרה!)
+            is_filtered = (ai_result and ai_result['category'] != 'RELEVANT')
+
+            if is_filtered:
                 print(f"  🔴 סונן ({ai_result['category']}): {ai_result['reason']}")
-                return False  # לא שומרים!
+                print(f"  💾 שומר ב-DB (כדי לא לבדוק שוב)")
+
+                # ⚡ דילוג על Agent 2 - אין טעם למלא חסרים לספאם!
+                # שמירה מהירה ב-DB עם נתונים בסיסיים
+                cursor.execute('''
+                    INSERT INTO posts (
+                        post_url, post_id, content, author, 
+                        group_name, is_relevant,
+                        category, is_broker, ai_confidence, ai_reason,
+                        scanned_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    post_data.get('post_url'),
+                    post_data.get('post_id'),
+                    content,
+                    author,
+                    post_data.get('group_name'),
+                    0,  # is_relevant = 0 (סונן!)
+                    ai_result['category'],
+                    1 if ai_result['is_broker'] else 0,
+                    ai_result['confidence'],
+                    ai_result['reason'],
+                    post_data.get('scanned_at', datetime.now())
+                ))
+
+                conn.commit()
+                return False  # ← חשוב! מחזירים False כדי שלא יופיע כ"חדש"
 
             # =========================================
-            # Regex: חילוץ ראשוני
+            # ✅ אם הגענו לכאן - זה RELEVANT!
+            # ממשיכים עם Regex ו-Agent 2
             # =========================================
             details = self.extract_details(content)
 
             # =========================================
-            # Agent 2: מילוי חסרים (אם צריך)
+            # Agent 2: מילוי חסרים (רק ל-RELEVANT!)
             # =========================================
-            needs_ai = (not details['price'] or not details['city'])
+            needs_ai = (
+                    not details['price'] or
+                    not details['city'] or
+                    not details['location'] or
+                    not details['rooms']  # ← הוסף את זה!
+            )
 
             if needs_ai and self.ai_agents:
                 try:
@@ -155,6 +228,10 @@ class PostDatabase:
                         details['city'] = ai_details['city']
                         print(f"    ✅ עיר מ-AI: {details['city']}")
 
+                    if not details['location'] and ai_details.get('location'):
+                        details['location'] = ai_details['location']
+                        print(f"    ✅ מיקום מ-AI: {details['location']}")
+
                 except Exception as e:
                     print(f"  ❌ Agent 2 failed: {e}")
 
@@ -164,24 +241,25 @@ class PostDatabase:
             cursor.execute('''
                 INSERT INTO posts (
                     post_url, post_id, content, author, 
-                    city, price, rooms, phone,
+                    city, location, price, rooms, phone,
                     group_name, blacklist_match, is_relevant,
                     category, is_broker, ai_confidence, ai_reason,
                     scanned_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 post_data.get('post_url'),
                 post_data.get('post_id'),
                 content,
                 author,
                 details['city'],
+                details['location'],  # ← הוסף את זה!
                 details['price'],
                 details['rooms'],
                 details['phone'],
                 post_data.get('group_name'),
                 post_data.get('blacklist_match'),
-                post_data.get('is_relevant', 1),
+                0 if is_filtered else post_data.get('is_relevant', 1),
 
                 # שדות AI
                 ai_result['category'] if ai_result else 'RELEVANT',
@@ -195,10 +273,11 @@ class PostDatabase:
             conn.commit()
             return True
 
-        except sqlite3.IntegrityError:
-            return False
+
         except Exception as e:
-            raise Exception(f"שגיאה בשמירת פוסט: {str(e)}")
+
+            print(f"⚠️ שגיאה בשמירת פוסט: {str(e)}")
+            return False
         finally:
             conn.close()
 
@@ -408,9 +487,9 @@ class PostDatabase:
         #print(f"🔍 DEBUG Content: {repr(content[:300])}")
 
         if not content:
-            return {'city': None, 'price': None, 'rooms': None, 'phone': None}
+            return {'city': None, 'location': None, 'price': None, 'rooms': None, 'phone': None}
 
-        details = {'city': None, 'price': None, 'rooms': None, 'phone': None}
+        details = {'city': None, 'location': None, 'price': None, 'rooms': None, 'phone': None}
         content_clean = content.replace('\n', ' ')
 
 
@@ -467,118 +546,97 @@ class PostDatabase:
             except:
                 pass
 
-       # 2. זיהוי מיקום - עם עדיפות לעיר מפורשת!
+        # =========================================================
+        # 2. זיהוי מיקום - לוגיקה חדשה!
+        # =========================================================
 
-        # 2.1 - חיפוש עיר מפורש (עדיפות עליונה!) ← חדש!
-        # תבניות: "בירושלים", "תל אביב רחוב", "למכירה במעלה אדומים"
-        explicit_city_patterns = [
-            r'ב(ירושלים|תל אביב|חיפה|מעלה אדומים|בית שמש|נס ציונה|ראשון לציון|פתח תקווה|באר שבע|בני ברק|רמת גן|נתניה|רחובות|הרצליה|רעננה|מודיעין|כפר סבא)',
-            r'(ירושלים|תל אביב|חיפה|מעלה אדומים|בית שמש|נס ציונה|ראשון לציון|פתח תקווה|באר שבע|בני ברק|רמת גן|נתניה|רחובות|הרצליה|רעננה|מודיעין|כפר סבא)\s+(?:רחוב|דירה|למכירה|להשכרה)'
-        ]
-
-        for pattern in explicit_city_patterns:
-            match = re.search(pattern, content)
+        # 2.1 - עיר מפורשת
+        if self.cities_regex:
+            # חיפוש עם "ב" + רווח אופציונלי + עיר + (רווח/פסיק/סוף)
+            match = re.search(rf'ב\s*({self.cities_regex.pattern})(?:\s|,|\.|\)|$)',
+                              content, re.IGNORECASE)
             if match:
                 details['city'] = match.group(1)
-                break
 
-        # 2.2 - רחוב (רק אם לא מצאנו עיר מפורשת!)
+            # חיפוש עם הקשר אחרי (אם עדיין לא מצאנו)
+            if not details['city']:
+                match = re.search(rf'({self.cities_regex.pattern})\s+(?:רחוב|דירה|למכירה|להשכרה)',
+                                  content, re.IGNORECASE)
+                if match:
+                    details['city'] = match.group(1)
+
+            # חיפוש עם הקשר אחרי
+            if not details['city']:
+                match = re.search(rf'({self.cities_regex.pattern})\s+(?:רחוב|דירה|למכירה|להשכרה)',
+                                  content, re.IGNORECASE)
+                if match:
+                    details['city'] = match.group(1)
+
+        # 2.2 - אם מצאנו עיר, חפש שכונה/רחוב (מהיר!)
+        if details['city']:
+            # חיפוש שכונה עם pattern משולב
+            if details['city'] in self.neighborhoods_regex:
+                match = self.neighborhoods_regex[details['city']].search(content)
+                if match:
+                    details['location'] = match.group(1)
+
+            # אם לא מצאנו שכונה, חפש רחוב
+            if not details['location']:
+                street_pattern = r"(?:רחוב|רח'|רח|שדרות|סמטת|דרך)\s+([א-ת\s\"']+?)(?=\s*\)|\s*\d|\s*,|\s*\.|\s*$)"
+                match = re.search(street_pattern, content_clean)
+                if match:
+                    street = match.group(1).strip()
+                    if 2 < len(street) < 25:
+                        details['location'] = f"רחוב {street}"
+
+        # 2.3 - אם אין עיר, חפש שכונה ידועה
         if not details['city']:
-            street_pattern = r"(?:רחוב|רח'|רח|שדרות|סמטת|דרך)\s+([א-ת\s\"'0-9\(\)]+?)(?=\d{2,}|,|\.|-|–|:|ללא|בקרבת|ליד|קרוב|בין|מתאריך|$)"
-            matches = re.finditer(street_pattern, content_clean)
-            blacklist_words = ['שקט', 'קטן', 'מבוקש', 'פסטורלי', 'ללא מוצא', 'ראשי', 'הולנדי', 'חד סטרי', 'פנימי',
-                               'משופץ', 'מרווח']
-            # רחובות שנראים כמו ערים - נדלג עליהם
-            city_like_streets = ['בית לחם', 'תל אביב', 'ירושלים', 'חיפה', 'רמת גן']
-
-            for match in matches:
-                raw_candidate = match.group(1)
-                clean_candidate = re.sub(r'\(\d+\)', '', raw_candidate)
-                candidate = clean_candidate.strip(" ()-.,–:")
-                is_blacklisted = any(bad_word in candidate for bad_word in blacklist_words)
-                is_city_like = any(city_name in candidate for city_name in city_like_streets)
-
-                if not is_blacklisted and not is_city_like and 2 < len(candidate) < 25 and not candidate.isdigit():
-                    details['city'] = candidate
-                    break
-
-        # 2.3 - ערים מלאות (רק עם הקשר!)
-        if not details['city']:
-            cities_sorted = sorted(self.cities, key=len, reverse=True)
-
-            for city in cities_sorted:
-                # 4 תבניות הקשר לערים
-                city_patterns = [
-                    r'ב' + re.escape(city),  # בירושלים
-                    r'[,\.]\s*' + re.escape(city),  # ..., ירושלים
-                    re.escape(city) + r'\s+(?:רחוב|דירה|למכירה)',  # ירושלים רחוב
-                    r'(?:עיר|בעיר)\s+' + re.escape(city)  # עיר ירושלים
-                ]
-
-                # בדיקה אם אחת מהתבניות תופסת
-                found = False
-                for pattern in city_patterns:
-                    if re.search(pattern, content):
-                        found = True
-                        break
-
-                if found:
-                    clean_city = city.replace('-', ' ').replace('"', '')
-                    details['city'] = clean_city
-                    break
-
-        # 2.4 - landmarks (עם הקשר!)
-        if not details['city']:
-            landmarks = self.landmarks
-
-
-            for landmark, location in landmarks.items():
-                # תבניות הקשר ל-landmarks (גמיש כמו ערים)
-                landmark_patterns = [
-                    r'ב' + re.escape(landmark),  # באיכילוב
-                    r'[,\.]\s*' + re.escape(landmark),  # ..., איכילוב
-                    r'(?:ליד|קרוב ל|סמוך ל)\s+' + re.escape(landmark)  # ליד איכילוב
-                ]
-
-                found = False
-                for pattern in landmark_patterns:
-                    if re.search(pattern, content):
-                        found = True
-                        break
-
-                if found:
-                    details['city'] = location
-                    break
-
-        # 2.5 - שכונות (רק עם הקשר מחמיר!)
-        if not details['city']:
-            locations = self.neighborhoods
-
-            # מילות הקשר לשכונות (מחמיר!)
-            # שימוש בהקשר מה-JSON
-            context_words = self.neighborhood_context
-
-            for city, neighborhoods in locations.items():
+            for city, neighborhoods in self.neighborhoods.items():
                 for neighborhood in neighborhoods:
-                    # חיפוש עם הקשר חובה!
-                    pattern = context_words + r'\s+' + re.escape(neighborhood)
-
+                    # חיפוש עם הקשר
+                    pattern = r'(?:ב|שכונת|אזור)\s+' + re.escape(neighborhood)
                     if re.search(pattern, content):
-                        # בדיקה מיוחדת ל"ארנונה"
-                        if neighborhood == 'ארנונה':
-                            tax_context = ['מ״ר ב', 'מטר ב', 'בתשלום', 'משלמים', 'רשום ב']
-                            is_tax = any(ctx in content for ctx in tax_context)
-                            if is_tax:
-                                continue
-
-                        details['city'] = f"{city} ({neighborhood})"
+                        details['city'] = city
+                        details['location'] = neighborhood
                         break
                 if details['city']:
                     break
 
-        # 3. טלפון
+        # 2.4 - אם אין עיר, חפש landmark (מהיר!)
+        if not details['city'] and self.landmarks_regex:
+            match = re.search(rf'(?:ב|ליד|קרוב ל|סמוך ל)\s+({self.landmarks_regex.pattern})',
+                              content, re.IGNORECASE)
+            if match:
+                landmark = match.group(1)
+                details['city'] = self.landmarks.get(landmark)
+                details['location'] = f"ליד {landmark}"
+
+        # 2.5 - אם אין עיר, חפש ערים עם הקשר (מהיר!)
+        if not details['city'] and self.cities_regex:
+            # חיפוש עם הקשרים שונים
+            context_patterns = [
+                rf'ב({self.cities_regex.pattern})',
+                rf'[,\.]\s*({self.cities_regex.pattern})',
+                rf'({self.cities_regex.pattern})\s+(?:רחוב|דירה|למכירה)',
+                rf'(?:עיר|בעיר)\s+({self.cities_regex.pattern})'
+            ]
+
+            for pattern in context_patterns:
+                match = re.search(pattern, content, re.IGNORECASE)
+                if match:
+                    city = match.group(1)
+                    details['city'] = city.replace('-', ' ').replace('"', '')
+                    break
+
+
+        # 3. טלפון (כולל פורמט בינלאומי)
 
         phone_patterns = [
+            # פורמט בינלאומי: +972-XX-XXX-XXXX
+            r'\+972[\s\-]?5\d[\s\-]?\d{3}[\s\-]?\d{4}',
+            r'\+972[\s\-]?5\d[\s\-]?\d{7}',
+
+            # פורמט ישראלי רגיל (הקוד הישן שלך)
             r'0\d{1,2}[-\s\.]?\d{3}[-\s\.]?\d{4}',
             r'\(0\d{1,2}\)\s?\d{3}[-\s]?\d{4}',
             r'0\d{1,2}[-\s]?\d{3}[-\s]?\d{2}[-\s]?\d{2}'
@@ -587,12 +645,30 @@ class PostDatabase:
         for pattern in phone_patterns:
             phone_match = re.search(pattern, content)
             if phone_match:
-                details['phone'] = re.sub(r'[^\d]', '', phone_match.group(0))
+                raw_phone = phone_match.group(0)
+
+                # ניקוי: הסר +972 והחלף ב-0
+                if raw_phone.startswith('+972'):
+                    raw_phone = '0' + raw_phone[4:]  # הסר +972 והוסף 0
+
+                # הסר כל מה שלא ספרה
+                details['phone'] = re.sub(r'[^\d]', '', raw_phone)
                 break
 
-        # 4. חדרים (תומך גם בקיצורים: חד', חד)
-        rooms_match = re.search(r'(\d+\.?\d*)\s*(?:חדר|חד\'|חד)', content)
+        # 4. חדרים - תומך ב: "2 חדרים", "2.5 חד'", "2 וחצי חדרים"
+        rooms_patterns = [
+            r'(\d+(?:\.\d+)?)\s*(?:וחצי\s+)?(?:חדרים|חדר|חד\'|חד)',  # 2 וחצי חדרים
+            r'(\d+\.5)\s*(?:חדרים|חדר|חד\'|חד)',  # 2.5 חדרים
+        ]
+
+        rooms_match = None
+        for pattern in rooms_patterns:
+            rooms_match = re.search(pattern, content)
+            if rooms_match:
+                break
+
         if rooms_match:
             details['rooms'] = rooms_match.group(1)
 
-        return details
+        return details  # ← הוסף את זה!
+
