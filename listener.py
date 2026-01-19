@@ -19,10 +19,6 @@ class FacebookListener:
 
     def __init__(self, config_path="config.json"):
         """אתחול המאזין"""
-        # ישן - נשאר לביטחון (נמחק בשלב 4)
-        self.config = self._load_config(config_path)
-
-        # חדש - זה מה שנשתמש בו
         self.settings = SettingsManager(config_path)
 
         self.db = PostDatabase()
@@ -39,14 +35,6 @@ class FacebookListener:
         self.status_callback = None
         self.new_post_callback = None
         self.settings.on_change(self._on_settings_changed)
-
-    def _load_config(self, config_path):
-        """טוען הגדרות - ישן, נשאר לביטחון"""
-        if os.path.exists(config_path):
-            with open(config_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        else:
-            raise Exception("קובץ config.json לא נמצא!")
 
     def set_status_callback(self, callback):
         """מגדיר פונקציה לעדכון סטטוס בממשק"""
@@ -207,7 +195,7 @@ class FacebookListener:
         try:
             _ = self.scraper.driver.current_url
             return True
-        except:
+        except Exception:
             self._log("⚠️ דפדפן לא מגיב - פותח מחדש...")
             try:
                 self.scraper.close()
@@ -299,7 +287,7 @@ class FacebookListener:
                     self.scraper.close()
                 self.scraper = None
                 self._log("🔄 דפדפן אופס - יפתח מחדש בבדיקה הבאה")
-            except:
+            except Exception:
                 pass
 
     def start_listening(self):
@@ -316,7 +304,7 @@ class FacebookListener:
             self._log("🧹 מוצא דפדפן ישן - סוגר...")
             try:
                 self.scraper.close()
-            except:
+            except Exception:
                 pass
             self.scraper = None
 

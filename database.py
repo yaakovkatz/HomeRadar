@@ -376,21 +376,26 @@ class PostDatabase:
         #  פונקציית עזר פנימית לחישוב סטטיסטיקה לפי תקופת זמן
         #  מקבלת מספר ימים (days) ומחזירה כמה רלוונטיים וכמה נחסמו
         # =========================================================
+        # וידוא שdays הוא מספר שלם (הגנה מפני SQL injection)
+        days = int(days)
+
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
         try:
-            # שימוש ב-f-string כדי להכניס את מספר הימים לשאילתה
-            # המשמעות: "תביא לי פוסטים מהתאריך של (עכשיו פחות X ימים) והלאה"
+            # בניית מחרוזת התאריך בצורה בטוחה
+            date_modifier = f'-{days} days'
 
             # 1. ספירת רלוונטיים בתקופה
             cursor.execute(
-                f"SELECT COUNT(*) FROM posts WHERE DATE(scanned_at) >= DATE('now', '-{days} days') AND is_relevant = 1")
+                "SELECT COUNT(*) FROM posts WHERE DATE(scanned_at) >= DATE('now', ?) AND is_relevant = 1",
+                (date_modifier,))
             relevant = cursor.fetchone()[0]
 
             # 2. ספירת חסומים בתקופה
             cursor.execute(
-                f"SELECT COUNT(*) FROM posts WHERE DATE(scanned_at) >= DATE('now', '-{days} days') AND blacklist_match IS NOT NULL")
+                "SELECT COUNT(*) FROM posts WHERE DATE(scanned_at) >= DATE('now', ?) AND blacklist_match IS NOT NULL",
+                (date_modifier,))
             blacklisted = cursor.fetchone()[0]
 
             return {'relevant': relevant, 'blacklisted': blacklisted}
@@ -532,7 +537,7 @@ class PostDatabase:
                     if 500000 <= clean_num <= 50000000:
                         details['price'] = str(clean_num)
                         break
-                except:
+                except (ValueError, TypeError):
                     pass
 
         # עיבוד התוצאה
@@ -543,7 +548,7 @@ class PostDatabase:
                 # בדיקת טווח סביר
                 if 1000 <= price_int <= 50000000:
                     details['price'] = clean_price
-            except:
+            except (ValueError, TypeError):
                 pass
 
         # =========================================================
@@ -559,13 +564,6 @@ class PostDatabase:
                 details['city'] = match.group(1)
 
             # חיפוש עם הקשר אחרי (אם עדיין לא מצאנו)
-            if not details['city']:
-                match = re.search(rf'({self.cities_regex.pattern})\s+(?:רחוב|דירה|למכירה|להשכרה)',
-                                  content, re.IGNORECASE)
-                if match:
-                    details['city'] = match.group(1)
-
-            # חיפוש עם הקשר אחרי
             if not details['city']:
                 match = re.search(rf'({self.cities_regex.pattern})\s+(?:רחוב|דירה|למכירה|להשכרה)',
                                   content, re.IGNORECASE)

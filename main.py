@@ -281,20 +281,19 @@ class GuardianGUI:
                 clean_num = int(str(post_data['price']).replace(',', '').replace('₪', '').strip())
                 # פורמט אחיד: ₪ בהתחלה + פסיקים
                 price = f"₪{clean_num:,}"
-            except:
+            except (ValueError, TypeError):
                 price = "לא צוין"
 
         # גיבוי: חילוץ מהטקסט
         if price == "לא צוין":
             content = post_data.get('content', '')
-            import re
             match = re.search(r'(\d{1,3}(?:,\d{3})*)', content)
             if match:
                 try:
                     num = int(match.group(1).replace(',', ''))
                     if num > 1000:
                         price = f"₪{num:,}"
-                except:
+                except (ValueError, TypeError):
                     pass
 
         # 2. מיקום מלא (עיר + שכונה/רחוב)
@@ -422,8 +421,10 @@ class GuardianGUI:
                         else:
                             self.card_trends.value_label.config(text="--")
                         self.card_trends.sub_label.config(text=f"עיר מובילה: {clean_city}")
-                    except: pass
-                except Exception as e: pass
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
                 time.sleep(1)
         threading.Thread(target=update, daemon=True).start()
 
@@ -555,7 +556,7 @@ class GuardianGUI:
                     try:
                         clean_num = int(str(post['price']).replace(',', '').replace('.', ''))
                         price = f"₪{clean_num:,}"
-                    except:
+                    except (ValueError, TypeError):
                         price = str(post['price'])
 
                 rooms = post['rooms'] or "-"
@@ -649,7 +650,7 @@ class GuardianGUI:
             if self.db.export_to_csv(filename):
                 messagebox.showinfo("הצלחה", "נשמר בהצלחה!")
                 try: os.startfile(os.path.dirname(filename))
-                except: pass
+                except OSError: pass
             else: messagebox.showwarning("שגיאה", "אין נתונים לייצוא")
 
 def main():
@@ -657,7 +658,7 @@ def main():
     try:
         from ctypes import windll
         windll.shcore.SetProcessDpiAwareness(1)
-    except: pass
+    except Exception: pass
     app = GuardianGUI(root)
     root.mainloop()
 
