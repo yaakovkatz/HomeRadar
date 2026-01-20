@@ -55,6 +55,9 @@ class GuardianGUI:
         # יצירת אזור הכרטיסיות (ללא גלילה)
         self._create_recent_cards_area()
 
+        # הצגה ראשונית של כרטיסיות עיר-שכונה
+        self._create_city_neighborhood_cards()
+
         self._start_stats_updater()
 
     def on_closing(self):
@@ -204,9 +207,16 @@ class GuardianGUI:
         header_frame = tk.Frame(container, bg=COLORS['secondary'], pady=7)
         header_frame.pack(fill='x', pady=(0, 5))
 
-        tk.Label(header_frame, text="🔥 דירות אחרונות",
+        tk.Label(header_frame, text="🗺️ מפת דירות",
                  font=('Segoe UI', 16, 'bold'),
                  bg=COLORS['secondary'], fg='white').pack(side='right', padx=10)
+
+        # כפתור רענון
+        refresh_btn = tk.Button(header_frame, text="🔄 רענן", font=('Segoe UI', 10),
+                               bg=COLORS['accent'], fg='white', bd=0,
+                               padx=15, pady=5, cursor='hand2',
+                               command=self._create_city_neighborhood_cards)
+        refresh_btn.pack(side='left', padx=10)
 
         # === 3. אזור הכרטיסיות ===
         # שינוי קטן: הוספתי קצת padding פנימי כדי שהכרטיסיות לא "יידבקו" לפס הכחול
@@ -268,6 +278,111 @@ class GuardianGUI:
             card.grid(row=row, column=col, padx=10, pady=10)
 
     # ==============================================================================
+    # כרטיסיות עיר-שכונה (חדש!)
+    # ==============================================================================
+    def _create_city_neighborhood_cards(self):
+        """מציג כרטיסיות עיר-שכונה במקום דירות אחרונות"""
+        # ניקוי הקונטיינר
+        for widget in self.cards_container.winfo_children():
+            widget.destroy()
+
+        # שליפת הנתונים
+        stats = self.analytics.get_city_neighborhood_stats(min_apartments=3)
+
+        if not stats:
+            # אין נתונים - הצג הודעה
+            tk.Label(self.cards_container,
+                    text="אין מספיק נתונים להצגה (נדרשות לפחות 3 דירות)",
+                    font=('Segoe UI', 12),
+                    bg=COLORS['bg'],
+                    fg=COLORS['text_light']).pack(pady=50)
+            return
+
+        # יצירת כרטיסייה לכל עיר
+        row = 0
+        col = 0
+        MAX_COLS = 2  # 2 ערים בשורה
+
+        for city, neighborhoods in stats.items():
+            # כרטיסייה של עיר
+            city_card = tk.Frame(self.cards_container, bg=COLORS['card'], bd=0,
+                                highlightthickness=2, highlightbackground=COLORS['secondary'])
+            city_card.grid(row=row, column=col, padx=15, pady=15, sticky='nsew')
+
+            # כותרת העיר
+            city_header = tk.Frame(city_card, bg=COLORS['secondary'], pady=8)
+            city_header.pack(fill='x')
+
+            total = sum(neighborhoods.values())
+            tk.Label(city_header, text=f"🏙️ {city}",
+                    font=('Segoe UI', 14, 'bold'),
+                    bg=COLORS['secondary'], fg='white').pack(side='right', padx=10)
+
+            tk.Label(city_header, text=f"{total} דירות",
+                    font=('Segoe UI', 10),
+                    bg=COLORS['secondary'], fg='#bdc3c7').pack(side='left', padx=10)
+
+            # קונטיינר לשכונות
+            neighborhoods_container = tk.Frame(city_card, bg=COLORS['card'], padx=10, pady=10)
+            neighborhoods_container.pack(fill='both', expand=True)
+
+            # חישוב grid לשכונות
+            num_neighborhoods = len(neighborhoods)
+            if num_neighborhoods <= 4:
+                grid_cols = 2
+            elif num_neighborhoods <= 6:
+                grid_cols = 3
+            else:
+                grid_cols = 3  # מקסימום 3 עמודות
+
+            # יצירת כרטיסיות שכונות
+            for idx, (neighborhood, count) in enumerate(neighborhoods.items()):
+                n_row = idx // grid_cols
+                n_col = grid_cols - 1 - (idx % grid_cols)  # RTL
+
+                # כרטיסייה של שכונה
+                neigh_card = tk.Frame(neighborhoods_container, bg='white', bd=1,
+                                     relief='solid', highlightthickness=1,
+                                     highlightbackground='#e0e0e0')
+                neigh_card.grid(row=n_row, column=n_col, padx=5, pady=5, sticky='nsew')
+
+                # פס צבע (לפי כמות)
+                if count >= 7:
+                    bar_color = '#e74c3c'  # אדום - חם!
+                elif count >= 5:
+                    bar_color = '#9b59b6'  # סגול
+                elif count >= 3:
+                    bar_color = '#3498db'  # כחול
+                else:
+                    bar_color = '#2ecc71'  # ירוק
+
+                tk.Frame(neigh_card, bg=bar_color, height=3).pack(fill='x')
+
+                # תוכן השכונה
+                content = tk.Frame(neigh_card, bg='white', padx=10, pady=8)
+                content.pack(fill='both', expand=True)
+
+                tk.Label(content, text=neighborhood,
+                        font=('Segoe UI', 11, 'bold'),
+                        bg='white', fg=COLORS['primary']).pack()
+
+                # סה"כ דירות
+                count_label = f"{count} דירות" if count > 1 else "דירה 1"
+                tk.Label(content, text=count_label,
+                        font=('Segoe UI', 13, 'bold'),
+                        bg='white', fg=bar_color).pack(pady=3)
+
+            # מעבר לעמודה/שורה הבאה
+            col += 1
+            if col >= MAX_COLS:
+                col = 0
+                row += 1
+
+        # הגדרת משקולות לעמודות (כדי שיתפסו שטח שווה)
+        for c in range(MAX_COLS):
+            self.cards_container.grid_columnconfigure(c, weight=1)
+
+    # ==============================================================================
     # קבלת נתונים מה-Listener
     # ==============================================================================
     def on_new_post_found(self, post_data):
@@ -321,8 +436,8 @@ class GuardianGUI:
 
         display_rooms = str(rooms) if "חד" in str(rooms) else f"{rooms} חד'"
 
-        # יצירת הכרטיסייה
-        self.root.after(0, lambda: self.add_new_listing_card(location, price, display_rooms))
+        # רענון כרטיסיות עיר-שכונה (במקום כרטיסייה בודדת)
+        self.root.after(0, lambda: self._create_city_neighborhood_cards())
 
     def log_status(self, message, level='INFO'):
         """לוג לקונסול בלבד"""
