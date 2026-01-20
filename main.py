@@ -278,89 +278,96 @@ class GuardianGUI:
             card.grid(row=row, column=col, padx=10, pady=10)
 
     # ==============================================================================
-    # כרטיסיות עיר-שכונה (חדש!)
+    # כרטיסיות עיר-שכונה (עיצוב קומפקטי - שורה אחת)
     # ==============================================================================
     def _create_city_neighborhood_cards(self):
-        """מציג כרטיסיות עיר-שכונה - רק ירושלים, בית שמש, בני ברק"""
-        # ניקוי הקונטיינר
+        """מציג כרטיסיות עיר-שכונה בעיצוב סופר-קומפקטי (שם ומספר באותה שורה)"""
+        # 1. ניקוי הקונטיינר
         for widget in self.cards_container.winfo_children():
             widget.destroy()
 
-        # שליפת הנתונים
+        # 2. שליפת הנתונים
         all_stats = self.analytics.get_city_neighborhood_stats(min_apartments=1)
 
-        # סינון: רק 3 ערים!
         ALLOWED_CITIES = ['ירושלים', 'בית שמש', 'בני ברק']
         stats = {city: neighborhoods for city, neighborhoods in all_stats.items()
-                if city in ALLOWED_CITIES}
+                 if city in ALLOWED_CITIES}
 
         if not stats:
-            # אין נתונים - הצג הודעה
             tk.Label(self.cards_container,
-                    text="אין דירות בערים: ירושלים, בית שמש, בני ברק",
-                    font=('Segoe UI', 12),
-                    bg=COLORS['bg'],
-                    fg=COLORS['text_light']).pack(pady=50)
+                     text="אין דירות בערים: ירושלים, בית שמש, בני ברק",
+                     font=('Segoe UI', 12), bg=COLORS['bg'], fg=COLORS['text_light']).pack(pady=50)
             return
 
-        # יצירת כרטיסייה לכל עיר
-        row = 0
-        col = 0
-        MAX_COLS = 3  # 3 ערים בשורה
+        # צבעים למסגרות
+        BORDER_COLORS = ['#27ae60', '#2980b9', '#8e44ad', '#2c3e50', '#d35400', '#16a085']
 
+        # 4 עמודות בתוך כל עיר - כדי לנצל את הרוחב
+        COLS_PER_CITY = 4
+
+        # 3. יצירת המבנה הראשי
+        main_frame = tk.Frame(self.cards_container, bg=COLORS['bg'])
+        main_frame.pack(fill='both', expand=True)
+
+        # לולאה על הערים (יוצרת עמודות דינמיות - אם תהיה בני ברק היא תתווסף לבד)
         for city, neighborhoods in stats.items():
-            # כרטיסייה של עיר
-            city_card = tk.Frame(self.cards_container, bg=COLORS['card'], bd=0,
-                                highlightthickness=2, highlightbackground=COLORS['secondary'])
-            city_card.grid(row=row, column=col, padx=10, pady=10, sticky='n')
+            # --- מסגרת ראשית לעיר ---
+            city_container = tk.Frame(main_frame, bg='white', bd=0)
+            # expand=True מבטיח שכל עיר תקבל רוחב שווה
+            city_container.pack(side='right', fill='both', expand=True, padx=6, pady=0)
 
-            # כותרת העיר
-            city_header = tk.Frame(city_card, bg=COLORS['secondary'], pady=6)
-            city_header.pack(fill='x')
+            # --- כותרת העיר (עיצוב חדש: נקי, דק, בלי אייקון) ---
+            # מסגרת לכותרת
+            header_frame = tk.Frame(city_container, bg='white', pady=0)
+            header_frame.pack(fill='x')
 
-            total = sum(neighborhoods.values())
-            tk.Label(city_header, text=f"🏙️ {city}",
-                    font=('Segoe UI', 13, 'bold'),
-                    bg=COLORS['secondary'], fg='white').pack()
+            # הטקסט עצמו (דק יותר, צבע כהה על רקע לבן)
+            tk.Label(header_frame, text=city,
+                     font=('Segoe UI', 13, 'bold'),
+                     bg='white', fg=COLORS['primary']).pack(side='right', padx=10, pady=(8, 4))
 
-            # קונטיינר לשכונות - ללא padding מיותר
-            neighborhoods_container = tk.Frame(city_card, bg=COLORS['card'], padx=5, pady=5)
-            neighborhoods_container.pack()
+            # פס הפרדה צבעוני עדין מתחת לשם העיר
+            tk.Frame(city_container, bg=COLORS['accent'], height=2).pack(fill='x', pady=(0, 8))
 
-            # יצירת כרטיסיות שכונות - פשוט וקומפקטי
-            for idx, (neighborhood, count) in enumerate(neighborhoods.items()):
-                # כרטיסייה קטנה של שכונה
-                neigh_card = tk.Frame(neighborhoods_container, bg='white', bd=1,
-                                     relief='solid', highlightthickness=1,
-                                     highlightbackground='#e0e0e0', width=150)
-                neigh_card.pack(pady=3, fill='x')
+            # --- קונטיינר לשכונות ---
+            neighborhoods_grid = tk.Frame(city_container, bg='white', padx=2)
+            neighborhoods_grid.pack(fill='both', expand=True)
 
-                # פס צבע (לפי כמות)
-                if count >= 7:
-                    bar_color = '#e74c3c'  # אדום
-                elif count >= 5:
-                    bar_color = '#9b59b6'  # סגול
-                elif count >= 3:
-                    bar_color = '#3498db'  # כחול
-                else:
-                    bar_color = '#2ecc71'  # ירוק
+            items = list(neighborhoods.items())
 
-                tk.Frame(neigh_card, bg=bar_color, height=3).pack(fill='x')
+            # הגדרת משקלים לעמודות
+            for c in range(COLS_PER_CITY):
+                neighborhoods_grid.columnconfigure(c, weight=1)
 
-                # תוכן - שכונה + מספר בלבד!
-                content = tk.Frame(neigh_card, bg='white', padx=8, pady=5)
-                content.pack(fill='x')
+            for i, (neighborhood, count) in enumerate(items):
+                row = i // COLS_PER_CITY
+                col = (COLS_PER_CITY - 1) - (i % COLS_PER_CITY)
 
-                # שורה אחת: שכונה = מספר
-                tk.Label(content, text=f"{neighborhood} = {count}",
-                        font=('Segoe UI', 10, 'bold'),
-                        bg='white', fg=COLORS['primary'], anchor='e').pack(fill='x')
+                border_color = BORDER_COLORS[i % len(BORDER_COLORS)]
 
-            # מעבר לעמודה הבאה
-            col += 1
-            if col >= MAX_COLS:
-                col = 0
-                row += 1
+                # --- כרטיס שכונה (Single Line) ---
+                # גובה מינימלי נמוך יותר ועיצוב צפוף
+                card = tk.Frame(neighborhoods_grid, bg='white',
+                                highlightbackground=border_color,
+                                highlightthickness=1,  # מסגרת דקה יותר
+                                bd=0)
+
+                card.grid(row=row, column=col, padx=3, pady=3, sticky='ew')
+
+                # תוכן הכרטיס: שם מימין, מספר משמאל - באותה שורה!
+
+                # שם השכונה (מימין) - קיצור אם ארוך מדי
+                disp_neigh = neighborhood
+                if len(disp_neigh) > 12: disp_neigh = disp_neigh[:11] + ".."
+
+                tk.Label(card, text=disp_neigh,
+                         font=('Segoe UI', 10, 'bold'),
+                         bg='white', fg='#2c3e50').pack(side='right', padx=(5, 2), pady=6)
+
+                # המספר (משמאל) - מודגש בצבע המסגרת
+                tk.Label(card, text=str(count),
+                         font=('Segoe UI', 11, 'bold'),
+                         bg='white', fg=border_color).pack(side='left', padx=(5, 5), pady=6)
 
     # ==============================================================================
     # קבלת נתונים מה-Listener
