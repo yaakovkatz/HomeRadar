@@ -281,18 +281,41 @@ class GuardianGUI:
     # כרטיסיות עיר-שכונה (חדש!)
     # ==============================================================================
     def _create_city_neighborhood_cards(self):
-        """מציג כרטיסיות עיר-שכונה - רק ירושלים, בית שמש, בני ברק"""
+        """מציג כרטיסיות עיר-שכונה - רק ירושלים, בית שמש, בני ברק - רק שכונות!"""
         # ניקוי הקונטיינר
         for widget in self.cards_container.winfo_children():
             widget.destroy()
+
+        # טעינת רשימת שכונות מהמאגר
+        try:
+            import json
+            import os
+            locations_file = os.path.join(os.path.dirname(__file__), 'data', 'locations.json')
+            with open(locations_file, 'r', encoding='utf-8') as f:
+                locations_data = json.load(f)
+            known_neighborhoods = locations_data.get('neighborhoods', {})
+        except:
+            known_neighborhoods = {}
 
         # שליפת הנתונים
         all_stats = self.analytics.get_city_neighborhood_stats(min_apartments=1)
 
         # סינון: רק 3 ערים!
         ALLOWED_CITIES = ['ירושלים', 'בית שמש', 'בני ברק']
-        stats = {city: neighborhoods for city, neighborhoods in all_stats.items()
-                if city in ALLOWED_CITIES}
+
+        # סינון: רק שכונות מהמאגר (לא רחובות!)
+        stats = {}
+        for city, neighborhoods in all_stats.items():
+            if city in ALLOWED_CITIES:
+                # סנן רק שכונות שבמאגר
+                filtered_neighborhoods = {
+                    neighborhood: count
+                    for neighborhood, count in neighborhoods.items()
+                    if not neighborhood.startswith('רחוב')  # לא רחובות
+                    and neighborhood in known_neighborhoods.get(city, [])  # רק שכונות מהמאגר
+                }
+                if filtered_neighborhoods:
+                    stats[city] = filtered_neighborhoods
 
         if not stats:
             # אין נתונים - הצג הודעה
