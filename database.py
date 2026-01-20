@@ -592,16 +592,25 @@ class PostDatabase:
                     if 2 < len(street) < 25:
                         details['location'] = f"רחוב {street}"
 
-        # 2.3 - אם אין עיר, חפש שכונה ידועה
+        # 2.3 - אם אין עיר, חפש שכונה ידועה במאגר
         if not details['city']:
             for city, neighborhoods in self.neighborhoods.items():
                 for neighborhood in neighborhoods:
-                    # חיפוש עם הקשר
-                    pattern = r'(?:ב|שכונת|אזור)\s+' + re.escape(neighborhood)
-                    if re.search(pattern, content):
-                        details['city'] = city
-                        details['location'] = neighborhood
+                    # חיפוש עם הקשר - כולל תמיכה בריבוי (קטמון/קטמונים)
+                    patterns = [
+                        r'(?:ב|שכונת|באזור|אזור)\s*' + re.escape(neighborhood) + r'(?:ים)?',  # בקטמון(ים)
+                        r'(?:ב|שכונת|באזור|אזור)\s+' + re.escape(neighborhood),  # בשכונת קטמון
+                    ]
+
+                    for pattern in patterns:
+                        if re.search(pattern, content, re.IGNORECASE):
+                            details['city'] = city  # ✅ הסקה אוטומטית מהמאגר!
+                            details['location'] = neighborhood
+                            break
+
+                    if details['city']:
                         break
+
                 if details['city']:
                     break
 
