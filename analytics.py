@@ -140,3 +140,56 @@ class Analytics:
             'popular_city': self.get_popular_city_today(),
             'apartments_per_hour': self.get_apartments_per_hour_today()
         }
+
+    def get_city_neighborhood_stats(self, min_apartments=3):
+        """
+        מחזיר סטטיסטיקות לפי עיר ושכונה - לתצוגה בכרטיסיות
+
+        Args:
+            min_apartments: מינימום דירות להצגת עיר (ברירת מחדל: 3)
+
+        Returns:
+            dict: {
+                'ירושלים': {
+                    'גילה': 5,
+                    'קטמון': 6,
+                    ...
+                },
+                'תל אביב': {
+                    'פלורנטין': 4,
+                    ...
+                }
+            }
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        # שליפת כל הדירות הרלוונטיות עם עיר ושכונה
+        cursor.execute('''
+            SELECT city, location, COUNT(*) as count
+            FROM posts
+            WHERE is_relevant = 1
+            AND city IS NOT NULL
+            AND location IS NOT NULL
+            GROUP BY city, location
+            ORDER BY city, count DESC
+        ''')
+
+        results = cursor.fetchall()
+        conn.close()
+
+        # בניית המבנה: עיר → {שכונה: כמות}
+        stats = {}
+        for city, location, count in results:
+            if city not in stats:
+                stats[city] = {}
+            stats[city][location] = count
+
+        # סינון: רק ערים עם 3+ דירות
+        filtered_stats = {
+            city: neighborhoods
+            for city, neighborhoods in stats.items()
+            if sum(neighborhoods.values()) >= min_apartments
+        }
+
+        return filtered_stats
