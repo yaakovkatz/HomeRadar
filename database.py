@@ -485,6 +485,19 @@ class PostDatabase:
     # =================================================================
     # מחלץ פרטים - גרסה משודרגת
     # =================================================================
+    def _normalize_hebrew(self, text):
+        """נרמול אותiות סופיות לאותiות רגילות למניעת בעיות התאמה"""
+        replacements = {
+            'ך': 'כ',  # כף סופית → כף רגילה
+            'ם': 'מ',  # מם סופית → מם רגילה
+            'ן': 'נ',  # נון סופית → נון רגילה
+            'ף': 'פ',  # פא סופית → פא רגילה
+            'ץ': 'צ',  # צדי סופית → צדי רגילה
+        }
+        for final, regular in replacements.items():
+            text = text.replace(final, regular)
+        return text
+
     def extract_details(self, content, group_name=None):
         """
         מחלץ פרטים - גרסה משופרת עם זיהוי עיר לפני רחוב
@@ -496,6 +509,9 @@ class PostDatabase:
 
         details = {'city': None, 'location': None, 'price': None, 'rooms': None, 'phone': None}
         content_clean = content.replace('\n', ' ')
+
+        # נרמול אותiות סופיות לחיפוש טוב יותר
+        content_normalized = self._normalize_hebrew(content_clean)
 
         # חילוץ עיר משם הקבוצה (עדיפות עליונה!)
         # זה ימנע זיהוי שגוי כמו "בארנונה" כשהקבוצה היא "בני ברק"
@@ -586,9 +602,11 @@ class PostDatabase:
             # זה מונע זיהוי שגוי כמו "קניון הדר תלפיות" → "תלפיות"
             if details['city'] in self.neighborhoods:
                 for neighborhood in self.neighborhoods[details['city']]:
+                    # נרמול לתמיכה באותiות סופיות
+                    neighborhood_normalized = self._normalize_hebrew(neighborhood)
                     # חיפוש רק עם הקשר: "בשכונת X", "שכונת X", וכו'
-                    pattern = r'(?:בשכונת|שכונת|באזור|אזור)\s+' + re.escape(neighborhood)
-                    match = re.search(pattern, content, re.IGNORECASE)
+                    pattern = r'(?:בשכונת|שכונת|באזור|אזור)\s+' + re.escape(neighborhood_normalized)
+                    match = re.search(pattern, content_normalized, re.IGNORECASE)
                     if match:
                         details['location'] = neighborhood
                         break
@@ -606,17 +624,21 @@ class PostDatabase:
         if not details['city']:
             for city, neighborhoods in self.neighborhoods.items():
                 for neighborhood in neighborhoods:
+                    # נרמול השכונה מהמאגר לחיפוש (קטמון → קטמונ)
+                    neighborhood_normalized = self._normalize_hebrew(neighborhood)
+
                     # חיפוש עם הקשר מפורש + word boundaries למניעת התאמות חלקיות
                     # זה מונע: "בארנונה" מתוך "לבארנונה", "הד" מתוך "נהדר"
+                    # משתמשים ב-content_normalized לתמיכה באותiות סופיות (קטמון/קטמונים)
                     patterns = [
                         # בשכונת X / שכונת X / באזור X
-                        r'(?:^|[\s,\.(])(בשכונת|שכונת|באזור|אזור)\s+' + re.escape(neighborhood) + r'(?:\s|,|\.|\)|$)',
+                        r'(?:^|[\s,\.(])(בשכונת|שכונת|באזור|אזור)\s+' + re.escape(neighborhood_normalized) + r'(?:\s|,|\.|\)|$)',
                         # בX (רק אם יש רווח/פסיק אחרי) + תמיכה בריבוי
-                        r'(?:^|[\s,\.(])ב' + re.escape(neighborhood) + r'(?:ים)?(?:\s|,|\.|\)|$)',
+                        r'(?:^|[\s,\.(])ב' + re.escape(neighborhood_normalized) + r'(?:ים)?(?:\s|,|\.|\)|$)',
                     ]
 
                     for pattern in patterns:
-                        if re.search(pattern, content, re.IGNORECASE):
+                        if re.search(pattern, content_normalized, re.IGNORECASE):
                             details['city'] = city  # ✅ הסקה אוטומטית מהמאגר!
                             details['location'] = neighborhood
                             break
