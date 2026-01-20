@@ -157,7 +157,7 @@ class FacebookListener:
                     self._log(f"  🟢 חדש: '{post['content'][:50]}...'")
 
                     if self.new_post_callback:
-                        details = self.db.extract_details(post['content'])
+                        details = self.db.extract_details(post['content'], group_name=group_name)
                         enriched_data = {
                             **post_data,
                             'price': details.get('price'),

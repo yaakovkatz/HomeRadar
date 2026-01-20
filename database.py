@@ -485,7 +485,7 @@ class PostDatabase:
     # =================================================================
     # מחלץ פרטים - גרסה משודרגת
     # =================================================================
-    def extract_details(self, content):
+    def extract_details(self, content, group_name=None):
         """
         מחלץ פרטים - גרסה משופרת עם זיהוי עיר לפני רחוב
         """
@@ -496,6 +496,15 @@ class PostDatabase:
 
         details = {'city': None, 'location': None, 'price': None, 'rooms': None, 'phone': None}
         content_clean = content.replace('\n', ' ')
+
+        # חילוץ עיר משם הקבוצה (עדיפות עליונה!)
+        # זה ימנע זיהוי שגוי כמו "בארנונה" כשהקבוצה היא "בני ברק"
+        city_from_group = None
+        if group_name and self.cities_regex:
+            match = re.search(self.cities_regex, group_name, re.IGNORECASE)
+            if match:
+                city_from_group = match.group(0)
+                details['city'] = city_from_group  # עדיפות עליונה!
 
 
         # 1. זיהוי מחיר
@@ -555,8 +564,9 @@ class PostDatabase:
         # 2. זיהוי מיקום - לוגיקה חדשה!
         # =========================================================
 
-        # 2.1 - עיר מפורשת
-        if self.cities_regex:
+        # 2.1 - עיר מפורשת (רק אם אין עיר מהקבוצה!)
+        # אם יש עיר מהקבוצה, היא מקבלת עדיפות עליונה
+        if not city_from_group and self.cities_regex:
             # חיפוש עם "ב" + רווח אופציונלי + עיר + (רווח/פסיק/סוף)
             match = re.search(rf'ב\s*({self.cities_regex.pattern})(?:\s|,|\.|\)|$)',
                               content, re.IGNORECASE)
@@ -596,10 +606,13 @@ class PostDatabase:
         if not details['city']:
             for city, neighborhoods in self.neighborhoods.items():
                 for neighborhood in neighborhoods:
-                    # חיפוש עם הקשר - כולל תמיכה בריבוי (קטמון/קטמונים)
+                    # חיפוש עם הקשר מפורש + word boundaries למניעת התאמות חלקיות
+                    # זה מונע: "בארנונה" מתוך "לבארנונה", "הד" מתוך "נהדר"
                     patterns = [
-                        r'(?:ב|שכונת|באזור|אזור)\s*' + re.escape(neighborhood) + r'(?:ים)?',  # בקטמון(ים)
-                        r'(?:ב|שכונת|באזור|אזור)\s+' + re.escape(neighborhood),  # בשכונת קטמון
+                        # בשכונת X / שכונת X / באזור X
+                        r'(?:^|[\s,\.(])(בשכונת|שכונת|באזור|אזור)\s+' + re.escape(neighborhood) + r'(?:\s|,|\.|\)|$)',
+                        # בX (רק אם יש רווח/פסיק אחרי) + תמיכה בריבוי
+                        r'(?:^|[\s,\.(])ב' + re.escape(neighborhood) + r'(?:ים)?(?:\s|,|\.|\)|$)',
                     ]
 
                     for pattern in patterns:
