@@ -572,11 +572,16 @@ class PostDatabase:
 
         # 2.2 - אם מצאנו עיר, חפש שכונה/רחוב (מהיר!)
         if details['city']:
-            # חיפוש שכונה עם pattern משולב
-            if details['city'] in self.neighborhoods_regex:
-                match = self.neighborhoods_regex[details['city']].search(content)
-                if match:
-                    details['location'] = match.group(1)
+            # חיפוש שכונה - רק עם הקשר מפורש!
+            # זה מונע זיהוי שגוי כמו "קניון הדר תלפיות" → "תלפיות"
+            if details['city'] in self.neighborhoods:
+                for neighborhood in self.neighborhoods[details['city']]:
+                    # חיפוש רק עם הקשר: "בשכונת X", "שכונת X", וכו'
+                    pattern = r'(?:בשכונת|שכונת|באזור|אזור)\s+' + re.escape(neighborhood)
+                    match = re.search(pattern, content, re.IGNORECASE)
+                    if match:
+                        details['location'] = neighborhood
+                        break
 
             # אם לא מצאנו שכונה, חפש רחוב
             if not details['location']:
