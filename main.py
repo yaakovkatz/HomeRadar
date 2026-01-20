@@ -286,8 +286,8 @@ class GuardianGUI:
         for widget in self.cards_container.winfo_children():
             widget.destroy()
 
-        # שליפת הנתונים
-        stats = self.analytics.get_city_neighborhood_stats(min_apartments=3)
+        # שליפת הנתונים (מינימום 1 דירה!)
+        stats = self.analytics.get_city_neighborhood_stats(min_apartments=1)
 
         if not stats:
             # אין נתונים - הצג הודעה
