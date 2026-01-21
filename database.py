@@ -120,14 +120,10 @@ class PostDatabase:
                         if city not in self.streets:
                             self.streets[city] = set()
 
-                        # נרמול רחוב (אותיות סופיות + תווים אנגליים)
+                        # נרמול רחוב (רק אותיות סופיות)
                         street_normalized = street.lower()
-                        # נרמול אותיות סופיות
                         for final, regular in {'ך': 'כ', 'ם': 'מ', 'ן': 'נ', 'ף': 'פ', 'ץ': 'צ'}.items():
                             street_normalized = street_normalized.replace(final, regular)
-                        # נרמול תווים אנגליים
-                        for eng, heb in {'v': 'ב', 'w': 'ו'}.items():
-                            street_normalized = street_normalized.replace(eng, heb)
 
                         self.streets[city].add(street_normalized)
 
@@ -573,29 +569,12 @@ class PostDatabase:
             text = text.replace(final, regular)
         return text
 
-    def _normalize_street_name(self, street):
-        """
-        נרמול מתקדם לשמות רחובות - תומך בתווים אנגליים שנכתבים בטעות
-        """
-        # נרמול אותיות סופיות
-        street = self._normalize_hebrew(street.lower())
-
-        # נרמול תווים אנגליים → עברית
-        replacements = {
-            'v': 'ב',  # סוקולוv → סוקולוב
-            'w': 'ו',  # שלום → שלוw
-        }
-        for eng, heb in replacements.items():
-            street = street.replace(eng, heb)
-
-        return street
-
     def _validate_street(self, street_name, city):
         """
         בודק אם הרחוב קיים במאגר הממשלתי עבור העיר
 
         Args:
-            street_name: שם הרחוב (למשל "סוקולוv" או "בשפע")
+            street_name: שם הרחוב (למשל "סוקולוב" או "בשפע")
             city: שם העיר (למשל "ירושלים", "תל אביב - יפו")
 
         Returns:
@@ -604,8 +583,8 @@ class PostDatabase:
         if not self.streets or not city or not street_name:
             return True  # אם אין מאגר, לא נסנן (fallback)
 
-        # נרמול שם הרחוב (עם תמיכה בתווים אנגליים)
-        street_normalized = self._normalize_street_name(street_name)
+        # נרמול שם הרחוב (רק אותיות סופיות)
+        street_normalized = self._normalize_hebrew(street_name.lower())
 
         # בדיקה: האם העיר קיימת במאגר?
         if city not in self.streets:
