@@ -280,37 +280,52 @@ class PostDatabase:
             # =========================================
             # Agent 2: מילוי חסרים (רק ל-RELEVANT!)
             # =========================================
-            needs_ai = (
-                    not details['price'] or
-                    not details['city'] or
-                    not details['location'] or
-                    not details['rooms']  # ← הוסף את זה!
-            )
+            # בדיקה מה חסר
+            missing = []
+            if not details['price']:
+                missing.append('מחיר')
+            if not details['city']:
+                missing.append('עיר')
+            if not details['location']:
+                missing.append('מיקום')
+            if not details['rooms']:
+                missing.append('חדרים')
 
-            if needs_ai and self.ai_agents:
+            if missing and self.ai_agents:
                 try:
-                    print(f"  🤖 Agent 2: ממלא חסרים...")
+                    print(f"  🤖 Agent 2: מחפש {', '.join(missing)}...")
                     ai_details = self.ai_agents.extract_missing_details(content, details)
+
+                    filled = []  # מה AI מילא בפועל
 
                     # מיזוג: AI ממלא רק מה שחסר
                     if not details['price'] and ai_details.get('price'):
                         details['price'] = ai_details['price']
-                        print(f"    ✅ מחיר מ-AI: {details['price']}")
+                        filled.append(f"מחיר: {details['price']}")
 
                     if not details['city'] and ai_details.get('city'):
                         details['city'] = ai_details['city']
-                        print(f"    ✅ עיר מ-AI: {details['city']}")
+                        filled.append(f"עיר: {details['city']}")
 
                     if not details['location'] and ai_details.get('location'):
                         details['location'] = ai_details['location']
-                        print(f"    ✅ מיקום מ-AI: {details['location']}")
+                        filled.append(f"מיקום: {details['location']}")
 
                     if not details['rooms'] and ai_details.get('rooms'):
                         details['rooms'] = ai_details['rooms']
-                        print(f"    ✅ חדרים מ-AI: {details['rooms']}")
+                        filled.append(f"חדרים: {details['rooms']}")
+
+                    # הדפסת תוצאות
+                    if filled:
+                        for item in filled:
+                            print(f"    ✅ {item}")
+                    else:
+                        print(f"    ⚠️ AI לא מצא את הפרטים החסרים")
 
                 except Exception as e:
                     print(f"  ❌ Agent 2 failed: {e}")
+            elif not missing:
+                print(f"  ✅ Regex מצא הכל: עיר={details['city']}, מיקום={details['location']}, מחיר={details['price']}, חדרים={details['rooms']}")
 
             # =========================================
             # שמירה ב-DB
