@@ -550,7 +550,7 @@ class PostDatabase:
         # נשמור את זה כ-fallback אם לא נמצא עיר בתוכן
         city_from_group = None
         if group_name and self.cities_regex:
-            match = re.search(self.cities_regex, group_name, re.IGNORECASE)
+            match = self.cities_regex.search(group_name)
             if match:
                 city_from_group = match.group(0)
 
