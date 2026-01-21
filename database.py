@@ -632,44 +632,44 @@ class PostDatabase:
         if not details['city'] and city_from_group:
             details['city'] = city_from_group
 
-        # 2.2 - אם מצאנו עיר, חפש שכונה/רחוב (מהיר!)
-        if details['city']:
-            neighborhood_found = None
-            street_found = None
+        # 2.2 - חיפוש שכונה/רחוב - תמיד! (גם אם אין עיר)
+        neighborhood_found = None
+        street_found = None
 
-            # חיפוש שכונה - רק עם הקשר מפורש!
-            # זה מונע זיהוי שגוי כמו "קניון הדר תלפיות" → "תלפיות"
-            if details['city'] in self.neighborhoods:
-                for neighborhood in self.neighborhoods[details['city']]:
-                    # נרמול לתמיכה באותiות סופיות
-                    neighborhood_normalized = self._normalize_hebrew(neighborhood)
-                    # חיפוש רק עם הקשר: "בשכונת X", "שכונת X", וכו'
-                    pattern = r'(?:בשכונת|שכונת|באזור|אזור)\s+' + re.escape(neighborhood_normalized)
-                    match = re.search(pattern, content_normalized, re.IGNORECASE)
-                    if match:
-                        neighborhood_found = neighborhood
-                        break
+        # חיפוש שכונה - אם יש עיר, חפש רק בשכונות שלה
+        # אם אין עיר, חפש בכל השכונות (כדי להסיק עיר)
+        if details['city'] and details['city'] in self.neighborhoods:
+            # יש עיר: חפש רק בשכונות של העיר הזאת
+            for neighborhood in self.neighborhoods[details['city']]:
+                # נרמול לתמיכה באותiות סופיות
+                neighborhood_normalized = self._normalize_hebrew(neighborhood)
+                # חיפוש רק עם הקשר: "בשכונת X", "שכונת X", וכו'
+                pattern = r'(?:בשכונת|שכונת|באזור|אזור)\s+' + re.escape(neighborhood_normalized)
+                match = re.search(pattern, content_normalized, re.IGNORECASE)
+                if match:
+                    neighborhood_found = neighborhood
+                    break
 
-            # חיפוש רחוב - תמיד! (גם אם מצאנו שכונה)
-            street_pattern = r"(?:רחוב|רח'|רח|שדרות|סמטת|דרך)\s+([א-ת\s\"']+?)(?=\s*\)|\s*\d|\s*,|\s*\.|\s*$)"
-            match = re.search(street_pattern, content_clean)
-            if match:
-                street = match.group(1).strip()
-                if 2 < len(street) < 25:
-                    street_found = f"רחוב {street}"
+        # חיפוש רחוב - תמיד! (בלי קשר לעיר או לשכונה)
+        street_pattern = r"(?:רחוב|רח'|רח|שדרות|סמטת|דרך)\s+([א-ת\s\"']+?)(?=\s*\)|\s*\d|\s*,|\s*\.|\s*$)"
+        match = re.search(street_pattern, content_clean)
+        if match:
+            street = match.group(1).strip()
+            if 2 < len(street) < 25:
+                street_found = f"רחוב {street}"
 
-            # שילוב שכונה + רחוב
-            if neighborhood_found and street_found:
-                # יש גם שכונה וגם רחוב → שלב אותם
-                details['location'] = f"{neighborhood_found}, {street_found}"
-            elif neighborhood_found:
-                # רק שכונה
-                details['location'] = neighborhood_found
-            elif street_found:
-                # רק רחוב
-                details['location'] = street_found
+        # שילוב שכונה + רחוב (אם נמצאו)
+        if neighborhood_found and street_found:
+            # יש גם שכונה וגם רחוב → שלב אותם
+            details['location'] = f"{neighborhood_found}, {street_found}"
+        elif neighborhood_found:
+            # רק שכונה
+            details['location'] = neighborhood_found
+        elif street_found:
+            # רק רחוב
+            details['location'] = street_found
 
-        # 2.3 - אם אין עיר, חפש שכונה ידועה במאגר
+        # 2.3 - אם אין עיר, חפש שכונה ידועה במאגר (כדי להסיק עיר)
         if not details['city']:
             for city, neighborhoods in self.neighborhoods.items():
                 for neighborhood in neighborhoods:
@@ -690,7 +690,11 @@ class PostDatabase:
                     for pattern in patterns:
                         if re.search(pattern, content_normalized, re.IGNORECASE):
                             details['city'] = city  # ✅ הסקה אוטומטית מהמאגר!
-                            details['location'] = neighborhood
+                            # שמירת הרחוב שנמצא קודם (אם יש)
+                            if street_found:
+                                details['location'] = f"{neighborhood}, {street_found}"
+                            else:
+                                details['location'] = neighborhood
                             break
 
                     if details['city']:
