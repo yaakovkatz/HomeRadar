@@ -20,6 +20,7 @@ class PostDatabase:
         self.db_path = db_path
         self._create_tables()
         self._load_locations()
+        self._load_streets()  # ← טעינת מאגר רחובות ממשלתי
         self._compile_location_patterns()
 
         # אתחול AI Agents ← הוסף את זה!
@@ -99,6 +100,40 @@ class PostDatabase:
             self.neighborhoods = {}
             self.landmarks = {}
             self.neighborhood_context = r'(?:רחוב|שכונת|אזור)'
+
+    def _load_streets(self):
+        """טוען מאגר רחובות ממשלתי לvalidation"""
+        try:
+            streets_file = os.path.join(os.path.dirname(__file__), 'streets.csv')
+
+            # מילון: {"עיר": set(["רחוב1", "רחוב2", ...])}
+            self.streets = {}
+
+            with open(streets_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    parts = line.strip().split(',')
+                    if len(parts) >= 7:
+                        city = parts[4].strip()  # עמודה 5: שם עיר
+                        street = parts[6].strip()  # עמודה 7: שם רחוב
+
+                        # הוסף לעיר
+                        if city not in self.streets:
+                            self.streets[city] = set()
+
+                        # נרמול עברית (כף סופית → כף רגילה וכו')
+                        street_normalized = self._normalize_hebrew(street.lower())
+                        self.streets[city].add(street_normalized)
+
+            # סטטיסטיקה
+            total_streets = sum(len(streets) for streets in self.streets.values())
+            print(f"✅ נטענו {len(self.streets)} ערים עם {total_streets:,} רחובות ממאגר ממשלתי")
+
+        except FileNotFoundError:
+            print("⚠️ קובץ streets.csv לא נמצא! validation רחובות לא יעבוד")
+            self.streets = {}
+        except Exception as e:
+            print(f"❌ שגיאה בטעינת streets.csv: {e}")
+            self.streets = {}
 
     def _compile_location_patterns(self):
         """מקמפל regex patterns לביצועים מקסימליים"""
@@ -531,6 +566,42 @@ class PostDatabase:
             text = text.replace(final, regular)
         return text
 
+    def _validate_street(self, street_name, city):
+        """
+        בודק אם הרחוב קיים במאגר הממשלתי עבור העיר
+
+        Args:
+            street_name: שם הרחוב (למשל "סוקולוv" או "בשפע")
+            city: שם העיר (למשל "ירושלים", "תל אביב - יפו")
+
+        Returns:
+            True אם הרחוב קיים, False אחרת
+        """
+        if not self.streets or not city or not street_name:
+            return True  # אם אין מאגר, לא נסנן (fallback)
+
+        # נרמול שם הרחוב
+        street_normalized = self._normalize_hebrew(street_name.lower())
+
+        # בדיקה: האם העיר קיימת במאגר?
+        if city not in self.streets:
+            # נסה גרסאות של העיר
+            city_variants = [
+                city,
+                city.replace(" - ", "-"),  # "תל אביב - יפו" → "תל אביב-יפו"
+                city.split(" - ")[0] if " - " in city else city,  # "תל אביב - יפו" → "תל אביב"
+            ]
+
+            for variant in city_variants:
+                if variant in self.streets:
+                    city = variant
+                    break
+            else:
+                return True  # עיר לא במאגר, לא נסנן
+
+        # בדיקה: האם הרחוב קיים בעיר?
+        return street_normalized in self.streets[city]
+
     def extract_details(self, content, group_name=None):
         """
         מחלץ פרטים - גרסה משופרת עם זיהוי עיר לפני רחוב
@@ -656,7 +727,10 @@ class PostDatabase:
         if match:
             street = match.group(1).strip()
             if 2 < len(street) < 25:
-                street_found = f"רחוב {street}"
+                # Validation: בדיקה מול מאגר ממשלתי
+                if self._validate_street(street, details['city']):
+                    street_found = f"רחוב {street}"
+                # אם לא עבר validation - street_found נשאר None (לא שומרים)
 
         # שילוב שכונה + רחוב (אם נמצאו)
         if neighborhood_found and street_found:
