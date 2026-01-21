@@ -602,8 +602,13 @@ class PostDatabase:
         Returns:
             True אם הרחוב קיים, False אחרת
         """
-        if not self.streets or not city or not street_name:
-            return True  # אם אין מאגר, לא נסנן (fallback)
+        # אם אין מאגר כלל → אל תסנן (fallback)
+        if not self.streets:
+            return True
+
+        # אם אין עיר או רחוב → לא יכולים לוודא → שלח ל-AI!
+        if not city or not street_name:
+            return False
 
         # נרמול שם הרחוב (רק אותיות סופיות)
         street_normalized = self._normalize_hebrew(street_name.lower())
