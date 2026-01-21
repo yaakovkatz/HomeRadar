@@ -171,15 +171,29 @@ class FacebookListener:
                 new_count += 1
                 if broker_match:
                     blacklisted_count += 1
-                    self._log(f"  🟠 מתווך: '{post['content'][:50]}...' (מילה: {broker_match})")
+                    # לא מדפיסים כלום - כבר הודפס ב-database.py
                 elif blacklist_match:
                     blacklisted_count += 1
                     self._log(f"  🔴 סונן: '{post['content'][:50]}...' (מילה: {blacklist_match})")
                 else:
-                    self._log(f"  🟢 חדש: '{post['content'][:50]}...'")
+                    # חלץ פרטים להצגה מסודרת
+                    details = self.db.extract_details(post['content'], group_name=group_name)
+
+                    # בנה הודעה מסודרת
+                    parts = []
+                    if details.get('city'):
+                        parts.append(f"📍 {details['city']}")
+                    if details.get('location'):
+                        parts.append(f"{details['location']}")
+                    if details.get('price'):
+                        parts.append(f"💰 {details['price']} ₪")
+                    if details.get('rooms'):
+                        parts.append(f"🏠 {details['rooms']} חד'")
+
+                    summary = " | ".join(parts) if parts else post['content'][:60]
+                    self._log(f"  🟢 חדש: {summary}")
 
                     if self.new_post_callback:
-                        details = self.db.extract_details(post['content'], group_name=group_name)
                         enriched_data = {
                             **post_data,
                             'price': details.get('price'),

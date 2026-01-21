@@ -187,7 +187,7 @@ class PostDatabase:
             broker_match = post_data.get('broker_match')
             if broker_match:
                 # מתווך זוהה על ידי regex - שמירה מהירה ללא AI
-                print(f"  🟠 מתווך (regex): {broker_match}")
+                print(f"  🚫 מתווך נחסם! מילת מפתח: '{broker_match}'")
                 cursor.execute('''
                     INSERT INTO posts (
                         post_url, post_id, content, author,
@@ -238,7 +238,10 @@ class PostDatabase:
             is_filtered = (ai_result and ai_result['category'] != 'RELEVANT')
 
             if is_filtered:
-                print(f"  🔴 סונן ({ai_result['category']}): {ai_result['reason']}")
+                if ai_result['is_broker']:
+                    print(f"  🚫 מתווך נחסם! (AI זיהה) - {ai_result['reason']}")
+                else:
+                    print(f"  🔴 סונן ({ai_result['category']}): {ai_result['reason']}")
                 print(f"  💾 שומר ב-DB (כדי לא לבדוק שוב)")
 
                 # ⚡ דילוג על Agent 2 - אין טעם למלא חסרים לספאם!
@@ -301,6 +304,10 @@ class PostDatabase:
                     if not details['location'] and ai_details.get('location'):
                         details['location'] = ai_details['location']
                         print(f"    ✅ מיקום מ-AI: {details['location']}")
+
+                    if not details['rooms'] and ai_details.get('rooms'):
+                        details['rooms'] = ai_details['rooms']
+                        print(f"    ✅ חדרים מ-AI: {details['rooms']}")
 
                 except Exception as e:
                     print(f"  ❌ Agent 2 failed: {e}")
