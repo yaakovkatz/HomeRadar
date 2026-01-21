@@ -546,14 +546,13 @@ class PostDatabase:
         # נרמול אותiות סופיות לחיפוש טוב יותר
         content_normalized = self._normalize_hebrew(content_clean)
 
-        # חילוץ עיר משם הקבוצה (עדיפות עליונה!)
-        # זה ימנע זיהוי שגוי כמו "בארנונה" כשהקבוצה היא "בני ברק"
+        # חילוץ עיר משם הקבוצה (fallback בלבד!)
+        # נשמור את זה כ-fallback אם לא נמצא עיר בתוכן
         city_from_group = None
         if group_name and self.cities_regex:
             match = re.search(self.cities_regex, group_name, re.IGNORECASE)
             if match:
                 city_from_group = match.group(0)
-                details['city'] = city_from_group  # עדיפות עליונה!
 
 
         # 1. זיהוי מחיר
@@ -613,9 +612,9 @@ class PostDatabase:
         # 2. זיהוי מיקום - לוגיקה חדשה!
         # =========================================================
 
-        # 2.1 - עיר מפורשת (רק אם אין עיר מהקבוצה!)
-        # אם יש עיר מהקבוצה, היא מקבלת עדיפות עליונה
-        if not city_from_group and self.cities_regex:
+        # 2.1 - עיר מפורשת מהתוכן (עדיפות ראשונה!)
+        # תמיד חפש קודם בתוכן, רק אם לא נמצא - השתמש בקבוצה
+        if self.cities_regex:
             # חיפוש עם "ב" + רווח אופציונלי + עיר + (רווח/פסיק/סוף)
             match = re.search(rf'ב\s*({self.cities_regex.pattern})(?:\s|,|\.|\)|$)',
                               content, re.IGNORECASE)
@@ -628,6 +627,10 @@ class PostDatabase:
                                   content, re.IGNORECASE)
                 if match:
                     details['city'] = match.group(1)
+
+        # 2.1.1 - אם לא נמצאה עיר בתוכן, השתמש בעיר מהקבוצה (fallback)
+        if not details['city'] and city_from_group:
+            details['city'] = city_from_group
 
         # 2.2 - אם מצאנו עיר, חפש שכונה/רחוב (מהיר!)
         if details['city']:
