@@ -4,13 +4,15 @@
     "https://www.facebook.com/groups/172544843294?locale=he_IL",
     "https://www.facebook.com/groups/344780799040537",
     "https://www.facebook.com/groups/303803599700653/",
-    "https://www.facebook.com/groups/554617481265118/?locale=he_IL"
+    "https://www.facebook.com/groups/554617481265118/?locale=he_IL",
+    "https://www.facebook.com/groups/753772402227239/"
   ],
   "groups_names": [
     "דירות מפה לאוזן בירושלים",
     "דירות להשכרה בירושלים",
     "פשפשוק - דירות למכירה",
-    "דירה להשכיר - ירושלים Rent Apartment in Jerusalem"
+    "דירה להשכיר - ירושלים Rent Apartment in Jerusalem",
+    "דירות להשכרה בבני ברק"
   ],
   "search_settings": {
     "cities": [
@@ -90,6 +92,7 @@
     "max_time_on_facebook": 15
   },
   "groups_active": [
+    true,
     true,
     true,
     true,
