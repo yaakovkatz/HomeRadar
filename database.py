@@ -598,6 +598,9 @@ class PostDatabase:
 
         # 2.2 - אם מצאנו עיר, חפש שכונה/רחוב (מהיר!)
         if details['city']:
+            neighborhood_found = None
+            street_found = None
+
             # חיפוש שכונה - רק עם הקשר מפורש!
             # זה מונע זיהוי שגוי כמו "קניון הדר תלפיות" → "תלפיות"
             if details['city'] in self.neighborhoods:
@@ -608,17 +611,27 @@ class PostDatabase:
                     pattern = r'(?:בשכונת|שכונת|באזור|אזור)\s+' + re.escape(neighborhood_normalized)
                     match = re.search(pattern, content_normalized, re.IGNORECASE)
                     if match:
-                        details['location'] = neighborhood
+                        neighborhood_found = neighborhood
                         break
 
-            # אם לא מצאנו שכונה, חפש רחוב
-            if not details['location']:
-                street_pattern = r"(?:רחוב|רח'|רח|שדרות|סמטת|דרך)\s+([א-ת\s\"']+?)(?=\s*\)|\s*\d|\s*,|\s*\.|\s*$)"
-                match = re.search(street_pattern, content_clean)
-                if match:
-                    street = match.group(1).strip()
-                    if 2 < len(street) < 25:
-                        details['location'] = f"רחוב {street}"
+            # חיפוש רחוב - תמיד! (גם אם מצאנו שכונה)
+            street_pattern = r"(?:רחוב|רח'|רח|שדרות|סמטת|דרך)\s+([א-ת\s\"']+?)(?=\s*\)|\s*\d|\s*,|\s*\.|\s*$)"
+            match = re.search(street_pattern, content_clean)
+            if match:
+                street = match.group(1).strip()
+                if 2 < len(street) < 25:
+                    street_found = f"רחוב {street}"
+
+            # שילוב שכונה + רחוב
+            if neighborhood_found and street_found:
+                # יש גם שכונה וגם רחוב → שלב אותם
+                details['location'] = f"{neighborhood_found}, {street_found}"
+            elif neighborhood_found:
+                # רק שכונה
+                details['location'] = neighborhood_found
+            elif street_found:
+                # רק רחוב
+                details['location'] = street_found
 
         # 2.3 - אם אין עיר, חפש שכונה ידועה במאגר
         if not details['city']:
