@@ -622,7 +622,8 @@ class PostDatabase:
                     city = variant
                     break
             else:
-                return True  # עיר לא במאגר, לא נסנן
+                # עיר לא במאגר → לא יכולים לוודא רחוב → שלח ל-AI!
+                return False
 
         # בדיקה: האם הרחוב קיים בעיר?
         return street_normalized in self.streets[city]
@@ -775,15 +776,12 @@ class PostDatabase:
                     # נרמול השכונה מהמאגר לחיפוש (קטמון → קטמונ)
                     neighborhood_normalized = self._normalize_hebrew(neighborhood)
 
-                    # חיפוש עם הקשר מפורש + word boundaries למניעת התאמות חלקיות
-                    # זה מונע: "בארנונה" מתוך "לבארנונה", "הד" מתוך "נהדר"
-                    # משתמשים ב-content_normalized לתמיכה באותiות סופיות (קטמון/קטמונים)
-                    # לאחר נרמול: "ים" הופך ל"ימ" (מם סופית → מם רגילה)
+                    # חיפוש רק עם הקשר מפורש - מונע "בארנונה" = מס
+                    # רק: "בשכונת ארנונה", "שכונת ארנונה", "באזור ארנונה"
+                    # לא: "בארנונה" סתם (יכול להיות מס ארנונה!)
                     patterns = [
-                        # בשכונת X / שכונת X / באזור X
+                        # בשכונת X / שכונת X / באזור X / אזור X
                         r'(?:^|[\s,\.(])(בשכונת|שכונת|באזור|אזור)\s+' + re.escape(neighborhood_normalized) + r'(?:\s|,|\.|\)|$)',
-                        # בX (רק אם יש רווח/פסיק אחרי) + תמיכה בריבוי (ימ = ים לאחר נרמול)
-                        r'(?:^|[\s,\.(])ב' + re.escape(neighborhood_normalized) + r'(?:ימ)?(?:\s|,|\.|\)|$)',
                     ]
 
                     for pattern in patterns:
