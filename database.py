@@ -144,6 +144,38 @@ class PostDatabase:
             author = post_data.get('author', '')
 
             # =========================================
+            # בדיקת מילות תיווך (לפני AI!)
+            # =========================================
+            broker_match = post_data.get('broker_match')
+            if broker_match:
+                # מתווך זוהה על ידי regex - שמירה מהירה ללא AI
+                print(f"  🟠 מתווך (regex): {broker_match}")
+                cursor.execute('''
+                    INSERT INTO posts (
+                        post_url, post_id, content, author,
+                        group_name, blacklist_match, is_relevant,
+                        category, is_broker, ai_confidence, ai_reason,
+                        scanned_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    post_data.get('post_url'),
+                    post_data.get('post_id'),
+                    content,
+                    author,
+                    post_data.get('group_name'),
+                    broker_match,  # שומר את המילה שנתפסה
+                    0,  # is_relevant = 0 (מסונן)
+                    'BROKER',  # category
+                    True,  # is_broker
+                    1.0,  # confidence גבוה - זה regex
+                    f"מתווך (מילת מפתח: {broker_match})",  # reason
+                    post_data.get('scanned_at')
+                ))
+                conn.commit()
+                return True  # נשמר ונסגר
+
+            # =========================================
             # Agent 1: סינון (תמיד רץ!) - עם תמונות
             # =========================================
             ai_result = None
@@ -319,7 +351,8 @@ class PostDatabase:
         # בניית השאילתה חלק-אחרי-חלק
         sql = 'SELECT * FROM posts '
         if relevant_only:
-            sql += 'WHERE is_relevant = 1 '
+            # מסנן: רק רלוונטיים, לא מתווכים, לא ספאם
+            sql += "WHERE is_relevant = 1 AND (category IS NULL OR category = 'RELEVANT') "
         sql += 'ORDER BY scanned_at DESC LIMIT ?'
 
         cursor.execute(sql, (limit,))

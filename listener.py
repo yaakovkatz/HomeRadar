@@ -119,6 +119,22 @@ class FacebookListener:
 
         return None
 
+    def _check_broker_keywords(self, content):
+        """
+        בודק אם הפוסט מכיל מילות מפתח של מתווכים
+
+        Returns:
+            None אם לא מתווך, או את המילה שנתפסה
+        """
+        content_lower = content.lower()
+
+        broker_keywords = self.settings.get('search_settings.broker_keywords', [])
+        for keyword in broker_keywords:
+            if keyword.lower() in content_lower:
+                return keyword  # נמצאה מילת תיווך
+
+        return None
+
     def _process_posts(self, posts, group_name):
         """מעבד רשימת פוסטים - בודק blacklist ושומר ב-DB"""
         last_known_id = self.db.get_last_post_id(group_name)
@@ -130,7 +146,9 @@ class FacebookListener:
             if post['post_id'] == last_known_id:
                 break
 
+            # בדיקות סינון
             blacklist_match = self._check_blacklist(post['content'])
+            broker_match = self._check_broker_keywords(post['content'])
 
             post_data = {
                 'post_url': post['post_url'],
@@ -142,7 +160,8 @@ class FacebookListener:
                 'city': post.get('city'),
                 'group_name': group_name,
                 'blacklist_match': blacklist_match,
-                'is_relevant': 1 if blacklist_match is None else 0,
+                'broker_match': broker_match,  # ← הוסף את זה!
+                'is_relevant': 1 if (blacklist_match is None and broker_match is None) else 0,
                 'scanned_at': datetime.now()
             }
 
@@ -150,7 +169,10 @@ class FacebookListener:
 
             if saved:
                 new_count += 1
-                if blacklist_match:
+                if broker_match:
+                    blacklisted_count += 1
+                    self._log(f"  🟠 מתווך: '{post['content'][:50]}...' (מילה: {broker_match})")
+                elif blacklist_match:
                     blacklisted_count += 1
                     self._log(f"  🔴 סונן: '{post['content'][:50]}...' (מילה: {blacklist_match})")
                 else:
