@@ -171,7 +171,11 @@ class FacebookListener:
                 new_count += 1
                 if broker_match:
                     blacklisted_count += 1
-                    # לא מדפיסים כלום - כבר הודפס ב-database.py
+                    # הצגת פרטי המתווך שנחסם
+                    author = post.get('author', 'לא ידוע')
+                    content_preview = post['content'][:80].replace('\n', ' ')
+                    self._log(f"  🚫 מתווך נחסם! מילת מפתח: '{broker_match}'")
+                    self._log(f"     מאת: {author} | תוכן: {content_preview}...")
                 elif blacklist_match:
                     blacklisted_count += 1
                     self._log(f"  🔴 סונן: '{post['content'][:50]}...' (מילה: {blacklist_match})")
