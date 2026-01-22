@@ -364,8 +364,8 @@ class PostDatabase:
                 post_data.get('scanned_at', datetime.now())
             ))
 
-                conn.commit()
-                return True
+            conn.commit()
+            return True
 
         except Exception as e:
             print(f"⚠️ שגיאה בשמירת פוסט: {str(e)}")
