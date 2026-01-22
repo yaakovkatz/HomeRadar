@@ -319,6 +319,7 @@ class FacebookListener:
         for idx, group_url in enumerate(groups_urls):
             group_name = groups_names[idx]
 
+            print("\n" + "-" * 70)
             self._log(f"🔍 סורק קבוצה: {group_name}")
 
             try:
@@ -332,6 +333,7 @@ class FacebookListener:
                 self._log(f"📊 נמצאו {len(posts)} פוסטים בקבוצה '{group_name}'")
 
                 # עיבוד פוסטים
+                self._log(f"⚙️ מעבד פוסטים מ-'{group_name}'...")
                 new_count, blacklisted_count = self._process_posts(posts, group_name)
 
                 # צבירת סטטיסטיקות
@@ -339,6 +341,7 @@ class FacebookListener:
                 total_filtered += blacklisted_count
 
                 self._log(f"✅ קבוצה '{group_name}': {new_count} חדשים ({blacklisted_count} סוננו)")
+                print("-" * 70)
 
             except Exception as e:
                 self._log(f"❌ שגיאה בסריקת '{group_name}': {str(e)}")
