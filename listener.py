@@ -122,16 +122,42 @@ class FacebookListener:
     def _check_broker_keywords(self, content):
         """
         בודק אם הפוסט מכיל מילות מפתח של מתווכים
+        מתעלם ממקרים של שלילה כמו "ללא תיווך", "בלי תיווך"
 
         Returns:
             None אם לא מתווך, או את המילה שנתפסה
         """
+        import re
         content_lower = content.lower()
+
+        # דפוסי שלילה שמבטלים זיהוי של מתווך
+        negation_patterns = [
+            r'\bללא\s+',      # "ללא תיווך"
+            r'\bבלי\s+',      # "בלי תיווך"
+            r'\bלא\s+',       # "לא תיווך" (פחות נפוץ)
+            r'\bללא\s+דמי\s+', # "ללא דמי תיווך"
+            r'\bבלי\s+דמי\s+', # "בלי דמי תיווך"
+            r'\bזה\s+לא\s+',  # "זה לא תיווך"
+        ]
 
         broker_keywords = self.settings.get('search_settings.search_settings.broker_keywords', [])
         for keyword in broker_keywords:
-            if keyword.lower() in content_lower:
-                return keyword  # נמצאה מילת תיווך
+            keyword_lower = keyword.lower()
+
+            # בדיקה אם המילה קיימת בתוכן
+            if keyword_lower in content_lower:
+                # בדיקה אם יש שלילה לפני המילה
+                is_negated = False
+                for negation in negation_patterns:
+                    # חיפוש דפוס של שלילה + מילת מפתח
+                    pattern = negation + re.escape(keyword_lower)
+                    if re.search(pattern, content_lower):
+                        is_negated = True
+                        break
+
+                # אם אין שלילה - זה מתווך אמיתי
+                if not is_negated:
+                    return keyword  # נמצאה מילת תיווך
 
         return None
 
