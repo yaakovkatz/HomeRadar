@@ -178,194 +178,194 @@ class PostDatabase:
                     if cursor.fetchone():
                         return False  # פוסט כבר קיים - לא ממשיכים!
 
-            content = post_data.get('content', '')
-            author = post_data.get('author', '')
+                content = post_data.get('content', '')
+                author = post_data.get('author', '')
 
-            # =========================================
-            # בדיקת מילות תיווך (לפני AI!)
-            # =========================================
-            broker_match = post_data.get('broker_match')
-            if broker_match:
-                # מתווך זוהה על ידי regex - שמירה מהירה ללא AI
-                print(f"  🚫 מתווך נחסם! מילת מפתח: '{broker_match}'")
+                # =========================================
+                # בדיקת מילות תיווך (לפני AI!)
+                # =========================================
+                broker_match = post_data.get('broker_match')
+                if broker_match:
+                    # מתווך זוהה על ידי regex - שמירה מהירה ללא AI
+                    print(f"  🚫 מתווך נחסם! מילת מפתח: '{broker_match}'")
+                    cursor.execute('''
+                        INSERT INTO posts (
+                            post_url, post_id, content, author,
+                            group_name, blacklist_match, is_relevant,
+                            category, is_broker, ai_confidence, ai_reason,
+                            scanned_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        post_data.get('post_url'),
+                        post_data.get('post_id'),
+                        content,
+                        author,
+                        post_data.get('group_name'),
+                        broker_match,  # שומר את המילה שנתפסה
+                        0,  # is_relevant = 0 (מסונן)
+                        'BROKER',  # category
+                        True,  # is_broker
+                        1.0,  # confidence גבוה - זה regex
+                        f"מתווך (מילת מפתח: {broker_match})",  # reason
+                        post_data.get('scanned_at')
+                    ))
+                    conn.commit()
+                    return True  # נשמר ונסגר
+    
+                # =========================================
+                # Agent 1: סינון (תמיד רץ!) - עם תמונות
+                # =========================================
+                ai_result = None
+                images = post_data.get('images', [])  # ← חדש! תפיסת תמונות
+    
+                if self.ai_agents:
+                    try:
+                        # שליחת תמונות ל-AI
+                        ai_result = self.ai_agents.classify_post(content, author, images)  # ← חדש!
+    
+                        # הצגת תוצאה
+                        if images:
+                            print(
+                                f"  🤖 Agent 1 (עם {len(images)} תמונות): {ai_result['category']} (confidence: {ai_result['confidence']:.2f})")
+                        else:
+                            print(f"  🤖 Agent 1: {ai_result['category']} (confidence: {ai_result['confidence']:.2f})")
+    
+                    except Exception as e:
+                        print(f"  ❌ Agent 1 failed: {e}")
+    
+                # בדיקה: האם לסנן? (אבל נשמור בכל מקרה!)
+                is_filtered = (ai_result and ai_result['category'] != 'RELEVANT')
+    
+                if is_filtered:
+                    if ai_result['is_broker']:
+                        print(f"  🚫 מתווך נחסם! (AI זיהה) - {ai_result['reason']}")
+                    else:
+                        print(f"  🔴 סונן ({ai_result['category']}): {ai_result['reason']}")
+                    print(f"  💾 שומר ב-DB (כדי לא לבדוק שוב)")
+    
+                    # ⚡ דילוג על Agent 2 - אין טעם למלא חסרים לספאם!
+                    # שמירה מהירה ב-DB עם נתונים בסיסיים
+                    cursor.execute('''
+                        INSERT INTO posts (
+                            post_url, post_id, content, author, 
+                            group_name, is_relevant,
+                            category, is_broker, ai_confidence, ai_reason,
+                            scanned_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        post_data.get('post_url'),
+                        post_data.get('post_id'),
+                        content,
+                        author,
+                        post_data.get('group_name'),
+                        0,  # is_relevant = 0 (סונן!)
+                        ai_result['category'],
+                        1 if ai_result['is_broker'] else 0,
+                        ai_result['confidence'],
+                        ai_result['reason'],
+                        post_data.get('scanned_at', datetime.now())
+                    ))
+    
+                    conn.commit()
+                    return False  # ← חשוב! מחזירים False כדי שלא יופיע כ"חדש"
+    
+                # =========================================
+                # ✅ אם הגענו לכאן - זה RELEVANT!
+                # ממשיכים עם Regex ו-Agent 2
+                # =========================================
+                details = self.extract_details(content)
+    
+                # =========================================
+                # Agent 2: מילוי חסרים (רק ל-RELEVANT!)
+                # =========================================
+                # בדיקה מה חסר
+                missing = []
+                if not details['price']:
+                    missing.append('מחיר')
+                if not details['city']:
+                    missing.append('עיר')
+                if not details['location']:
+                    missing.append('מיקום')
+                if not details['rooms']:
+                    missing.append('חדרים')
+    
+                if missing and self.ai_agents:
+                    try:
+                        print(f"  🤖 Agent 2: מחפש {', '.join(missing)}...")
+                        ai_details = self.ai_agents.extract_missing_details(
+                            content, details, post_data.get('group_name')
+                        )
+    
+                        filled = []  # מה AI מילא בפועל
+    
+                        # מיזוג: AI ממלא רק מה שחסר
+                        if not details['price'] and ai_details.get('price'):
+                            details['price'] = ai_details['price']
+                            filled.append(f"מחיר: {details['price']}")
+    
+                        if not details['city'] and ai_details.get('city'):
+                            details['city'] = ai_details['city']
+                            filled.append(f"עיר: {details['city']}")
+    
+                        if not details['location'] and ai_details.get('location'):
+                            details['location'] = ai_details['location']
+                            filled.append(f"מיקום: {details['location']}")
+    
+                        if not details['rooms'] and ai_details.get('rooms'):
+                            details['rooms'] = ai_details['rooms']
+                            filled.append(f"חדרים: {details['rooms']}")
+    
+                        # הדפסת תוצאות
+                        if filled:
+                            for item in filled:
+                                print(f"    ✅ {item}")
+                        else:
+                            print(f"    ⚠️ AI לא מצא את הפרטים החסרים")
+    
+                    except Exception as e:
+                        print(f"  ❌ Agent 2 failed: {e}")
+                elif not missing:
+                    print(f"  ✅ Regex מצא הכל: עיר={details['city']}, מיקום={details['location']}, מחיר={details['price']}, חדרים={details['rooms']}")
+    
+                # =========================================
+                # שמירה ב-DB
+                # =========================================
                 cursor.execute('''
                     INSERT INTO posts (
-                        post_url, post_id, content, author,
+                        post_url, post_id, content, author, 
+                        city, location, price, rooms, phone,
                         group_name, blacklist_match, is_relevant,
                         category, is_broker, ai_confidence, ai_reason,
                         scanned_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     post_data.get('post_url'),
                     post_data.get('post_id'),
                     content,
                     author,
+                    details['city'],
+                    details['location'],  # ← הוסף את זה!
+                    details['price'],
+                    details['rooms'],
+                    details['phone'],
                     post_data.get('group_name'),
-                    broker_match,  # שומר את המילה שנתפסה
-                    0,  # is_relevant = 0 (מסונן)
-                    'BROKER',  # category
-                    True,  # is_broker
-                    1.0,  # confidence גבוה - זה regex
-                    f"מתווך (מילת מפתח: {broker_match})",  # reason
-                    post_data.get('scanned_at')
-                ))
-                conn.commit()
-                return True  # נשמר ונסגר
-
-            # =========================================
-            # Agent 1: סינון (תמיד רץ!) - עם תמונות
-            # =========================================
-            ai_result = None
-            images = post_data.get('images', [])  # ← חדש! תפיסת תמונות
-
-            if self.ai_agents:
-                try:
-                    # שליחת תמונות ל-AI
-                    ai_result = self.ai_agents.classify_post(content, author, images)  # ← חדש!
-
-                    # הצגת תוצאה
-                    if images:
-                        print(
-                            f"  🤖 Agent 1 (עם {len(images)} תמונות): {ai_result['category']} (confidence: {ai_result['confidence']:.2f})")
-                    else:
-                        print(f"  🤖 Agent 1: {ai_result['category']} (confidence: {ai_result['confidence']:.2f})")
-
-                except Exception as e:
-                    print(f"  ❌ Agent 1 failed: {e}")
-
-            # בדיקה: האם לסנן? (אבל נשמור בכל מקרה!)
-            is_filtered = (ai_result and ai_result['category'] != 'RELEVANT')
-
-            if is_filtered:
-                if ai_result['is_broker']:
-                    print(f"  🚫 מתווך נחסם! (AI זיהה) - {ai_result['reason']}")
-                else:
-                    print(f"  🔴 סונן ({ai_result['category']}): {ai_result['reason']}")
-                print(f"  💾 שומר ב-DB (כדי לא לבדוק שוב)")
-
-                # ⚡ דילוג על Agent 2 - אין טעם למלא חסרים לספאם!
-                # שמירה מהירה ב-DB עם נתונים בסיסיים
-                cursor.execute('''
-                    INSERT INTO posts (
-                        post_url, post_id, content, author, 
-                        group_name, is_relevant,
-                        category, is_broker, ai_confidence, ai_reason,
-                        scanned_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    post_data.get('post_url'),
-                    post_data.get('post_id'),
-                    content,
-                    author,
-                    post_data.get('group_name'),
-                    0,  # is_relevant = 0 (סונן!)
-                    ai_result['category'],
-                    1 if ai_result['is_broker'] else 0,
-                    ai_result['confidence'],
-                    ai_result['reason'],
+                    post_data.get('blacklist_match'),
+                    0 if is_filtered else post_data.get('is_relevant', 1),
+    
+                    # שדות AI
+                    ai_result['category'] if ai_result else 'RELEVANT',
+                    1 if (ai_result and ai_result['is_broker']) else 0,
+                    ai_result['confidence'] if ai_result else None,
+                    ai_result['reason'] if ai_result else None,
+    
                     post_data.get('scanned_at', datetime.now())
                 ))
-
+    
                 conn.commit()
-                return False  # ← חשוב! מחזירים False כדי שלא יופיע כ"חדש"
-
-            # =========================================
-            # ✅ אם הגענו לכאן - זה RELEVANT!
-            # ממשיכים עם Regex ו-Agent 2
-            # =========================================
-            details = self.extract_details(content)
-
-            # =========================================
-            # Agent 2: מילוי חסרים (רק ל-RELEVANT!)
-            # =========================================
-            # בדיקה מה חסר
-            missing = []
-            if not details['price']:
-                missing.append('מחיר')
-            if not details['city']:
-                missing.append('עיר')
-            if not details['location']:
-                missing.append('מיקום')
-            if not details['rooms']:
-                missing.append('חדרים')
-
-            if missing and self.ai_agents:
-                try:
-                    print(f"  🤖 Agent 2: מחפש {', '.join(missing)}...")
-                    ai_details = self.ai_agents.extract_missing_details(
-                        content, details, post_data.get('group_name')
-                    )
-
-                    filled = []  # מה AI מילא בפועל
-
-                    # מיזוג: AI ממלא רק מה שחסר
-                    if not details['price'] and ai_details.get('price'):
-                        details['price'] = ai_details['price']
-                        filled.append(f"מחיר: {details['price']}")
-
-                    if not details['city'] and ai_details.get('city'):
-                        details['city'] = ai_details['city']
-                        filled.append(f"עיר: {details['city']}")
-
-                    if not details['location'] and ai_details.get('location'):
-                        details['location'] = ai_details['location']
-                        filled.append(f"מיקום: {details['location']}")
-
-                    if not details['rooms'] and ai_details.get('rooms'):
-                        details['rooms'] = ai_details['rooms']
-                        filled.append(f"חדרים: {details['rooms']}")
-
-                    # הדפסת תוצאות
-                    if filled:
-                        for item in filled:
-                            print(f"    ✅ {item}")
-                    else:
-                        print(f"    ⚠️ AI לא מצא את הפרטים החסרים")
-
-                except Exception as e:
-                    print(f"  ❌ Agent 2 failed: {e}")
-            elif not missing:
-                print(f"  ✅ Regex מצא הכל: עיר={details['city']}, מיקום={details['location']}, מחיר={details['price']}, חדרים={details['rooms']}")
-
-            # =========================================
-            # שמירה ב-DB
-            # =========================================
-            cursor.execute('''
-                INSERT INTO posts (
-                    post_url, post_id, content, author, 
-                    city, location, price, rooms, phone,
-                    group_name, blacklist_match, is_relevant,
-                    category, is_broker, ai_confidence, ai_reason,
-                    scanned_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                post_data.get('post_url'),
-                post_data.get('post_id'),
-                content,
-                author,
-                details['city'],
-                details['location'],  # ← הוסף את זה!
-                details['price'],
-                details['rooms'],
-                details['phone'],
-                post_data.get('group_name'),
-                post_data.get('blacklist_match'),
-                0 if is_filtered else post_data.get('is_relevant', 1),
-
-                # שדות AI
-                ai_result['category'] if ai_result else 'RELEVANT',
-                1 if (ai_result and ai_result['is_broker']) else 0,
-                ai_result['confidence'] if ai_result else None,
-                ai_result['reason'] if ai_result else None,
-
-                post_data.get('scanned_at', datetime.now())
-            ))
-
-            conn.commit()
-            return True
+                return True
 
         except Exception as e:
             print(f"⚠️ שגיאה בשמירת פוסט: {str(e)}")
