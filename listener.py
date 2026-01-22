@@ -105,14 +105,14 @@ class FacebookListener:
         content_lower = content.lower()
 
         # שלב 1: בדוק whitelist - אם יש התאמה, אל תסנן!
-        whitelist = self.settings.get('search_settings.whitelist', [])
+        whitelist = self.settings.get('search_settings.search_settings.whitelist', [])
         for phrase in whitelist:
             if phrase.lower() in content_lower:
                 # נמצאה ביטוי מה-whitelist - זה פוסט לגיטימי!
                 return None
 
         # שלב 2: רק עכשיו בדוק blacklist
-        blacklist = self.settings.get('search_settings.blacklist', [])
+        blacklist = self.settings.get('search_settings.search_settings.blacklist', [])
         for word in blacklist:
             if word.lower() in content_lower:
                 return word  # נמצאה מילה אסורה
@@ -128,7 +128,7 @@ class FacebookListener:
         """
         content_lower = content.lower()
 
-        broker_keywords = self.settings.get('search_settings.broker_keywords', [])
+        broker_keywords = self.settings.get('search_settings.search_settings.broker_keywords', [])
         for keyword in broker_keywords:
             if keyword.lower() in content_lower:
                 return keyword  # נמצאה מילת תיווך
