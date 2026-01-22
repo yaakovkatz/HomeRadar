@@ -294,7 +294,9 @@ class PostDatabase:
             if missing and self.ai_agents:
                 try:
                     print(f"  🤖 Agent 2: מחפש {', '.join(missing)}...")
-                    ai_details = self.ai_agents.extract_missing_details(content, details)
+                    ai_details = self.ai_agents.extract_missing_details(
+                        content, details, post_data.get('group_name')
+                    )
 
                     filled = []  # מה AI מילא בפועל
 
