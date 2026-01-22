@@ -223,8 +223,18 @@ Real Estate Plus | שירה 050-1234567"
             # ניקוי markdown backticks אם יש
             result_text = result_text.replace('```json', '').replace('```', '').strip()
 
-            # המרה ל-JSON
-            result = json.loads(result_text)
+            # המרה ל-JSON עם error handling
+            try:
+                result = json.loads(result_text)
+            except json.JSONDecodeError as json_err:
+                print(f"❌ Agent 1 - JSON parse error: {json_err}")
+                print(f"   Raw response: {result_text[:100]}...")
+                return {
+                    'category': 'RELEVANT',
+                    'is_broker': False,
+                    'confidence': 0.5,
+                    'reason': f'JSON parse failed'
+                }
 
             # ולידציה
             if result['confidence'] < 0.5:
@@ -425,8 +435,13 @@ Real Estate Plus | שירה 050-1234567"
             # ניקוי markdown backticks
             result_text = result_text.replace('```json', '').replace('```', '').strip()
 
-            # המרה ל-JSON
-            result = json.loads(result_text)
+            # המרה ל-JSON עם error handling
+            try:
+                result = json.loads(result_text)
+            except json.JSONDecodeError as json_err:
+                print(f"❌ Agent 2 - JSON parse error: {json_err}")
+                print(f"   Raw response: {result_text[:100]}...")
+                return {'price': None, 'city': None, 'location': None}
 
             # ולידציה: רק מחזירים מה שהיה חסר
             output = {}

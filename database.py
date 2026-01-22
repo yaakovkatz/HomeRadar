@@ -165,18 +165,18 @@ class PostDatabase:
         print(f"✅ קומפלו {len(self.cities)} ערים, {len(self.neighborhoods_regex)} קבוצות שכונות")
 
     def save_post(self, post_data):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
         try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
 
-            # =========================================
-            # בדיקה ראשונית: האם הפוסט כבר קיים?
-            # =========================================
-            post_url = post_data.get('post_url')
-            if post_url:
-                cursor.execute('SELECT id FROM posts WHERE post_url = ?', (post_url,))
-                if cursor.fetchone():
-                    return False  # פוסט כבר קיים - לא ממשיכים!
+                # =========================================
+                # בדיקה ראשונית: האם הפוסט כבר קיים?
+                # =========================================
+                post_url = post_data.get('post_url')
+                if post_url:
+                    cursor.execute('SELECT id FROM posts WHERE post_url = ?', (post_url,))
+                    if cursor.fetchone():
+                        return False  # פוסט כבר קיים - לא ממשיכים!
 
             content = post_data.get('content', '')
             author = post_data.get('author', '')
@@ -364,16 +364,12 @@ class PostDatabase:
                 post_data.get('scanned_at', datetime.now())
             ))
 
-            conn.commit()
-            return True
-
+                conn.commit()
+                return True
 
         except Exception as e:
-
             print(f"⚠️ שגיאה בשמירת פוסט: {str(e)}")
             return False
-        finally:
-            conn.close()
 
     # =================================================================
     #              שליפת מזהה הפוסט האחרון (למניעת כפילויות)
@@ -383,10 +379,9 @@ class PostDatabase:
         בודק מהו הפוסט האחרון שנשמר בדאטאבייס.
         משמש כדי שנדע מאיזה פוסט להתחיל לסרוק ולא נסרוק פוסטים ישנים שוב.
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        try:
             if group_name:
                 # אם ביקשו קבוצה ספציפית - תביא את הכי חדש מאותה קבוצה
                 cursor.execute('SELECT post_id FROM posts WHERE group_name = ? ORDER BY scanned_at DESC LIMIT 1', (group_name,))
@@ -399,43 +394,37 @@ class PostDatabase:
             # אם נמצאה תוצאה תחזיר את ה-ID, אחרת תחזיר None
             return result[0] if result else None
 
-        finally:
-            conn.close()
-
     # =========================================================
     #  שליפת כל הפוסטים (עבור התצוגה בטבלה)
     #  relevant_only: האם להביא רק פוסטים שסומנו כרלוונטיים
     # =========================================================
     def get_all_posts(self, relevant_only=True, limit=100):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        # בניית השאילתה חלק-אחרי-חלק
-        sql = 'SELECT * FROM posts '
-        if relevant_only:
-            # מסנן: רק רלוונטיים, לא מתווכים, לא ספאם
-            sql += "WHERE is_relevant = 1 AND (category IS NULL OR category = 'RELEVANT') "
-        sql += 'ORDER BY scanned_at DESC LIMIT ?'
+            # בניית השאילתה חלק-אחרי-חלק
+            sql = 'SELECT * FROM posts '
+            if relevant_only:
+                # מסנן: רק רלוונטיים, לא מתווכים, לא ספאם
+                sql += "WHERE is_relevant = 1 AND (category IS NULL OR category = 'RELEVANT') "
+            sql += 'ORDER BY scanned_at DESC LIMIT ?'
 
-        cursor.execute(sql, (limit,))
+            cursor.execute(sql, (limit,))
 
-        # שליפת שמות העמודות (כדי שיהיו לנו "תוויות")
-        columns = [description[0] for description in cursor.description]
-        rows = cursor.fetchall()
+            # שליפת שמות העמודות (כדי שיהיו לנו "תוויות")
+            columns = [description[0] for description in cursor.description]
+            rows = cursor.fetchall()
 
-        conn.close()
-
-        # המרת התוצאות למילון (כדי שנוכל לגשת לנתונים לפי שם העמודה)
-        return [dict(zip(columns, row)) for row in rows]
+            # המרת התוצאות למילון (כדי שנוכל לגשת לנתונים לפי שם העמודה)
+            return [dict(zip(columns, row)) for row in rows]
 
     def get_stats(self):
         # =========================================================
         #  הפקת דוח סטטיסטיקות (כמה פוסטים נאספו, כמה רלוונטיים וכו')
         # =========================================================
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        try:
             # 1. סה"כ פוסטים במערכת
             cursor.execute('SELECT COUNT(*) FROM posts')
             total = cursor.fetchone()[0]
@@ -460,9 +449,6 @@ class PostDatabase:
                 'today': today
             }
 
-        finally:
-            conn.close()
-
     def get_week_stats(self): return self._get_period_stats(7)
     def get_month_stats(self): return self._get_period_stats(30)
 
@@ -474,10 +460,9 @@ class PostDatabase:
         # וידוא שdays הוא מספר שלם (הגנה מפני SQL injection)
         days = int(days)
 
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        try:
             # בניית מחרוזת התאריך בצורה בטוחה
             date_modifier = f'-{days} days'
 
@@ -495,17 +480,14 @@ class PostDatabase:
 
             return {'relevant': relevant, 'blacklisted': blacklisted}
 
-        finally:
-            conn.close()
-
 
     #=========================================================
     #מחיקת פוסטים ישנים מהדאטאבייס (תחזוקה וניקוי)
     #=========================================================
     def clear_old_posts(self, days=30):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        try:
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
             # המטרה: למחוק כל מה שהתאריך שלו 'קטן' (ישן) מהיום פחות X ימים.
             cursor.execute("DELETE FROM posts WHERE scanned_at < datetime('now', '-' || ? || ' days')", (days,))
 
@@ -513,8 +495,6 @@ class PostDatabase:
             deleted = cursor.rowcount
             conn.commit()
             return deleted
-        finally:
-            conn.close()
 
     # =========================================================
     #  ייצוא הנתונים לאקסל (CSV) לשיתוף חיצוני

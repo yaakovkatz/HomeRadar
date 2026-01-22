@@ -24,21 +24,19 @@ class Analytics:
         Returns:
             int: ממוצע מחיר, או 0 אם אין נתונים
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        cursor.execute('''
-            SELECT AVG(CAST(price AS INTEGER))
-            FROM posts 
-            WHERE DATE(scanned_at) = DATE('now')
-            AND price IS NOT NULL
-            AND is_relevant = 1
-        ''')
+            cursor.execute('''
+                SELECT AVG(CAST(price AS INTEGER))
+                FROM posts
+                WHERE DATE(scanned_at) = DATE('now')
+                AND price IS NOT NULL
+                AND is_relevant = 1
+            ''')
 
-        result = cursor.fetchone()[0]
-        conn.close()
-
-        return int(result) if result else 0
+            result = cursor.fetchone()[0]
+            return int(result) if result else 0
 
     def get_average_rooms_today(self):
         """
@@ -47,21 +45,19 @@ class Analytics:
         Returns:
             float: ממוצע חדרים, או 0 אם אין נתונים
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        cursor.execute('''
-            SELECT AVG(CAST(rooms AS REAL))
-            FROM posts 
-            WHERE DATE(scanned_at) = DATE('now')
-            AND rooms IS NOT NULL
-            AND is_relevant = 1
-        ''')
+            cursor.execute('''
+                SELECT AVG(CAST(rooms AS REAL))
+                FROM posts
+                WHERE DATE(scanned_at) = DATE('now')
+                AND rooms IS NOT NULL
+                AND is_relevant = 1
+            ''')
 
-        result = cursor.fetchone()[0]
-        conn.close()
-
-        return round(result, 1) if result else 0
+            result = cursor.fetchone()[0]
+            return round(result, 1) if result else 0
 
     def get_popular_city_today(self):
         """
@@ -70,26 +66,25 @@ class Analytics:
         Returns:
             str: שם העיר + כמות, או "אין נתונים"
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        cursor.execute('''
-            SELECT city, COUNT(*) as count
-            FROM posts 
-            WHERE DATE(scanned_at) = DATE('now')
-            AND city IS NOT NULL
-            AND is_relevant = 1
-            GROUP BY city
-            ORDER BY count DESC
-            LIMIT 1
-        ''')
+            cursor.execute('''
+                SELECT city, COUNT(*) as count
+                FROM posts
+                WHERE DATE(scanned_at) = DATE('now')
+                AND city IS NOT NULL
+                AND is_relevant = 1
+                GROUP BY city
+                ORDER BY count DESC
+                LIMIT 1
+            ''')
 
-        result = cursor.fetchone()
-        conn.close()
+            result = cursor.fetchone()
 
-        if result:
-            return f"{result[0]} ({result[1]})"
-        return "אין נתונים"
+            if result:
+                return f"{result[0]} ({result[1]})"
+            return "אין נתונים"
 
     def get_apartments_per_hour_today(self):
         """
@@ -98,29 +93,27 @@ class Analytics:
         Returns:
             float: ממוצע דירות לשעה
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        # כמה דירות היום
-        cursor.execute('''
-            SELECT COUNT(*)
-            FROM posts 
-            WHERE DATE(scanned_at) = DATE('now')
-            AND is_relevant = 1
-        ''')
-        count = cursor.fetchone()[0]
+            # כמה דירות היום
+            cursor.execute('''
+                SELECT COUNT(*)
+                FROM posts
+                WHERE DATE(scanned_at) = DATE('now')
+                AND is_relevant = 1
+            ''')
+            count = cursor.fetchone()[0]
 
-        # כמה שעות עברו מתחילת היום
-        cursor.execute('''
-            SELECT (JULIANDAY('now') - JULIANDAY(DATE('now'))) * 24
-        ''')
-        hours = cursor.fetchone()[0]
+            # כמה שעות עברו מתחילת היום
+            cursor.execute('''
+                SELECT (JULIANDAY('now') - JULIANDAY(DATE('now'))) * 24
+            ''')
+            hours = cursor.fetchone()[0]
 
-        conn.close()
-
-        if hours > 0:
-            return round(count / hours, 1)
-        return 0.0
+            if hours > 0:
+                return round(count / hours, 1)
+            return 0.0
 
     def get_trends_today(self):
         """
@@ -161,36 +154,35 @@ class Analytics:
                 }
             }
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        # שליפת כל הדירות הרלוונטיות עם עיר ושכונה (ללא מתווכים)
-        cursor.execute('''
-            SELECT city, location, COUNT(*) as count
-            FROM posts
-            WHERE is_relevant = 1
-            AND (category IS NULL OR category = 'RELEVANT')
-            AND city IS NOT NULL
-            AND location IS NOT NULL
-            GROUP BY city, location
-            ORDER BY city, count DESC
-        ''')
+            # שליפת כל הדירות הרלוונטיות עם עיר ושכונה (ללא מתווכים)
+            cursor.execute('''
+                SELECT city, location, COUNT(*) as count
+                FROM posts
+                WHERE is_relevant = 1
+                AND (category IS NULL OR category = 'RELEVANT')
+                AND city IS NOT NULL
+                AND location IS NOT NULL
+                GROUP BY city, location
+                ORDER BY city, count DESC
+            ''')
 
-        results = cursor.fetchall()
-        conn.close()
+            results = cursor.fetchall()
 
-        # בניית המבנה: עיר → {שכונה: כמות}
-        stats = {}
-        for city, location, count in results:
-            if city not in stats:
-                stats[city] = {}
-            stats[city][location] = count
+            # בניית המבנה: עיר → {שכונה: כמות}
+            stats = {}
+            for city, location, count in results:
+                if city not in stats:
+                    stats[city] = {}
+                stats[city][location] = count
 
-        # סינון: רק ערים עם 3+ דירות
-        filtered_stats = {
-            city: neighborhoods
-            for city, neighborhoods in stats.items()
-            if sum(neighborhoods.values()) >= min_apartments
-        }
+            # סינון: רק ערים עם 3+ דירות
+            filtered_stats = {
+                city: neighborhoods
+                for city, neighborhoods in stats.items()
+                if sum(neighborhoods.values()) >= min_apartments
+            }
 
-        return filtered_stats
+            return filtered_stats

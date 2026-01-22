@@ -25,6 +25,7 @@ class FacebookListener:
         self.scraper = None
         self.is_listening = False
         self.is_cleaning = False
+        self.stop_event = threading.Event()  # Stop signal for graceful shutdown
         self.stats = {
             'checks_today': 0,
             'new_posts': 0,
@@ -381,6 +382,7 @@ class FacebookListener:
                 pass
             self.scraper = None
 
+        self.stop_event.clear()  # Reset stop signal for new session
         self.is_listening = True
         self.stats = {
             'checks_today': 0,
@@ -409,7 +411,7 @@ class FacebookListener:
     def _listen_loop(self):
         """הלולאה הראשית של ההאזנה"""
         try:
-            while self.is_listening:
+            while self.is_listening and not self.stop_event.is_set():
                 if not self._is_active_hours():
                     # חדש - משתמשים ב-settings
                     start_hour = self.settings.get('listener.active_hours_start', 8)
@@ -418,7 +420,8 @@ class FacebookListener:
                     # start_hour = self.config['listener']['active_hours_start']
 
                     self._log(f"😴 מחוץ לשעות פעילות - ישן עד {start_hour}:00")
-                    time.sleep(3600)
+                    if self.stop_event.wait(3600):  # Wait with early exit
+                        break
                     continue
 
                 self._single_check()
@@ -438,10 +441,10 @@ class FacebookListener:
                 self._log(f"⏰ ממתין {minutes} דקות עד הבדיקה הבאה...")
                 print("=" * 70 + "\n")
 
+                # Wait in 10-second chunks for responsive shutdown
                 for _ in range(wait_time // 10):
-                    if not self.is_listening:
+                    if self.stop_event.wait(10):  # Check every 10 seconds
                         break
-                    time.sleep(10)
 
         except Exception as e:
             self._log(f"❌ שגיאה קריטית בלולאה: {str(e)}")
@@ -469,13 +472,14 @@ class FacebookListener:
         self._log("✓ ניקוי הושלם")
 
     def stop_listening(self):
-        """עוצר את ההאזנה"""
+        """עוצר את ההאזנה בצורה יפה"""
         if not self.is_listening:
             self._log("⚠️ לא מאזין כרגע")
             return
 
         self._log("⏸️ עוצר האזנה...")
         self.is_listening = False
+        self.stop_event.set()  # Signal thread to stop gracefully
 
         wait_count = 0
         while self.is_cleaning and wait_count < 10:
