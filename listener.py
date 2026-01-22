@@ -148,16 +148,23 @@ class FacebookListener:
             if keyword_lower in content_lower:
                 # בדיקה אם יש שלילה לפני המילה
                 is_negated = False
+                negation_found = None
                 for negation in negation_patterns:
                     # חיפוש דפוס של שלילה + מילת מפתח
                     pattern = negation + re.escape(keyword_lower)
-                    if re.search(pattern, content_lower):
+                    match = re.search(pattern, content_lower)
+                    if match:
                         is_negated = True
+                        negation_found = match.group(0)  # שומר את הביטוי המלא
                         break
 
+                # אם יש שלילה - לוג ואל תסנן
+                if is_negated:
+                    self._log(f"  ℹ️ זוהתה מילה '{keyword}' אבל עם שלילה: '{negation_found}' - הפוסט לא סונן")
+                    continue  # המשך לבדוק מילות מפתח אחרות
+
                 # אם אין שלילה - זה מתווך אמיתי
-                if not is_negated:
-                    return keyword  # נמצאה מילת תיווך
+                return keyword  # נמצאה מילת תיווך
 
         return None
 
