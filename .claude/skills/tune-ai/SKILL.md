@@ -1,6 +1,6 @@
 ---
 name: tune-ai
-description: Analyzes HomeRadar database to find patterns and suggests AI configuration improvements. Automatically detects new brokers, settlements, and blacklist terms. Run weekly/monthly to keep filters updated.
+description: Analyzes HomeRadar database to find patterns and suggests AI configuration improvements. Automatically detects new brokers, settlements, blacklist terms, and misclassified posts. Run weekly/monthly to keep filters updated.
 ---
 
 # Tune AI Skill 🎯
@@ -16,6 +16,7 @@ description: Analyzes HomeRadar database to find patterns and suggests AI config
 - מזהה מילות מפתח חוזרות
 - מוצא דפוסים של מתווכים חדשים
 - מזהה יישובים שעברו מבעד לסינון
+- **חדש!** מזהה פוסטים שאולי סווגו לא נכון על ידי ה-AI ⚠️
 
 ### **2. המלצות חכמות** 💡
 ```
@@ -27,6 +28,9 @@ description: Analyzes HomeRadar database to find patterns and suggests AI config
 
 🔍 מצאתי 5 פוסטים עם "מחפש/ת חדר"
 💡 המלצה: להוסיף ל-blacklist
+
+⚠️ מצאתי 3 פוסטים שאולי סווגו לא נכון
+💡 המלצה: בדוק ידנית - אולי צריך לשפר הנחיות AI
 ```
 
 ### **3. יישום אוטומטי** ⚡
@@ -92,10 +96,11 @@ description: Analyzes HomeRadar database to find patterns and suggests AI config
 - דוגמאות: "מחפש/ת חדר", "דרוש מקום", "זקוק ל..."
 - המלצה להוסיף ל-`blacklist`
 
-### **D. דפוסי SPAM** 🚫
-- פוסטים חוזרים מאותו משתמש
-- קישורים חיצוניים חשודים
-- פרסומות מוסתרות
+### **D. פוסטים שסווגו לא נכון** ⚠️ **חדש!**
+- **RELEVANT עם מילות מתווך** - פוסט שסומן RELEVANT אבל יש בו broker_keywords
+- **NON_URBAN מעיר רלוונטית** - פוסט שסומן NON_URBAN אבל העיר ברשימת הערים הרלוונטיות
+- **BROKER ללא סימנים** - פוסט שסומן BROKER אבל אין בו סימני תיווך ברורים
+- **המלצה:** לבדוק ידנית ולעדכן הנחיות AI אם נדרש
 
 ---
 
@@ -140,7 +145,14 @@ ai_agents.py.backup.2026-01-23_15-30
    🔍 "זקוק למקום" - 4 פוסטים
    💡 להוסיף ל-blacklist
 
-✨ סה"כ 5 שיפורים מוצעים
+4️⃣ פוסטים חשודים (3):
+   ⚠️ Post #1234 - RELEVANT_WITH_BROKER_KEYWORDS
+      מכיל מילות מתווך: דורון, נכסים
+   ⚠️ Post #5678 - NON_URBAN_BUT_RELEVANT_CITY
+      עיר 'ירושלים' רלוונטית אבל סומן NON_URBAN
+   💡 בדוק ידנית - אולי צריך לעדכן הנחיות AI
+
+✨ סה"כ 8 שיפורים מוצעים
 
 הרץ עם --apply כדי ליישם, או --interactive לבחור
 ```

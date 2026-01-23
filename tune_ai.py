@@ -31,7 +31,8 @@ class TuneAI:
             'brokers': [],
             'settlements': [],
             'blacklist': [],
-            'spam': []
+            'spam': [],
+            'misclassified': []
         }
 
     def analyze(self):
@@ -59,7 +60,12 @@ class TuneAI:
         print("🚫 מחפש ביטויים חדשים לחסימה...")
         self._find_blacklist_terms()
 
-        # 5. סיכום המלצות
+        # 5. זיהוי פוסטים שסווגו לא נכון
+        print("\n" + "-" * 70)
+        print("⚠️ מחפש פוסטים שאולי סווגו לא נכון...")
+        self._find_misclassified_posts()
+
+        # 6. סיכום המלצות
         print("\n" + "=" * 70)
         self._print_recommendations()
 
@@ -267,6 +273,100 @@ class TuneAI:
         else:
             print("  ✅ לא נמצאו ביטויים חדשים")
 
+    def _find_misclassified_posts(self):
+        """מזהה פוסטים שאולי סווגו לא נכון"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            # טען broker_keywords
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            broker_keywords = [kw.lower() for kw in config['search_settings']['search_settings']['broker_keywords']]
+            cities = [city.lower() for city in config['search_settings']['cities']]
+
+            # 1. פוסטים שסומנו RELEVANT אבל יש בהם מילות מפתח של מתווכים
+            print("     🔎 בודק RELEVANT עם מילות מתווך...")
+            cursor.execute("""
+                SELECT post_id, content, author, city
+                FROM posts
+                WHERE is_relevant = 1
+                AND category = 'RELEVANT'
+                LIMIT 100
+            """)
+
+            relevant_posts = cursor.fetchall()
+            for post_id, content, author, city in relevant_posts:
+                text = (content + " " + (author or "")).lower()
+                found_keywords = [kw for kw in broker_keywords if kw in text]
+
+                if found_keywords:
+                    self.recommendations['misclassified'].append({
+                        'post_id': post_id,
+                        'type': 'RELEVANT_WITH_BROKER_KEYWORDS',
+                        'content_preview': content[:100] + "...",
+                        'city': city,
+                        'reason': f"מכיל מילות מתווך: {', '.join(found_keywords[:3])}"
+                    })
+
+            # 2. פוסטים שסומנו NON_URBAN אבל הם מעיר רלוונטית
+            print("     🔎 בודק NON_URBAN מעיר רלוונטית...")
+            cursor.execute("""
+                SELECT post_id, content, city, location
+                FROM posts
+                WHERE category = 'NON_URBAN'
+                LIMIT 100
+            """)
+
+            non_urban_posts = cursor.fetchall()
+            for post_id, content, city, location in non_urban_posts:
+                city_lower = (city or "").lower()
+                if city_lower in cities:
+                    self.recommendations['misclassified'].append({
+                        'post_id': post_id,
+                        'type': 'NON_URBAN_BUT_RELEVANT_CITY',
+                        'content_preview': content[:100] + "...",
+                        'city': city,
+                        'reason': f"עיר '{city}' רלוונטית אבל סומן NON_URBAN"
+                    })
+
+            # 3. פוסטים שסומנו BROKER אבל אין בהם סימני תיווך ברורים
+            print("     🔎 בודק BROKER ללא סימני תיווך...")
+            cursor.execute("""
+                SELECT post_id, content, author, ai_reason
+                FROM posts
+                WHERE is_broker = 1 OR category = 'BROKER'
+                LIMIT 50
+            """)
+
+            broker_posts = cursor.fetchall()
+            for post_id, content, author, ai_reason in broker_posts:
+                text = (content + " " + (author or "")).lower()
+
+                # בדוק אם יש סימנים ברורים
+                has_broker_signs = any([
+                    kw in text for kw in broker_keywords
+                ]) or any([
+                    word in text for word in ['מתווך', 'תיווך', 'נדלן', 'נכסים', 'real estate']
+                ])
+
+                if not has_broker_signs:
+                    self.recommendations['misclassified'].append({
+                        'post_id': post_id,
+                        'type': 'BROKER_WITHOUT_CLEAR_SIGNS',
+                        'content_preview': content[:100] + "...",
+                        'city': None,
+                        'reason': f"אין סימני תיווך ברורים. AI אמר: {ai_reason[:50] if ai_reason else 'N/A'}"
+                    })
+
+        # הדפסה
+        if self.recommendations['misclassified']:
+            print(f"  ⚠️ נמצאו {len(self.recommendations['misclassified'])} פוסטים חשודים:")
+            for item in self.recommendations['misclassified'][:5]:
+                print(f"     ⚠️ Post #{item['post_id']} - {item['type']}")
+                print(f"        {item['reason']}")
+        else:
+            print("  ✅ לא נמצאו פוסטים חשודים")
+
     def _print_recommendations(self):
         """סיכום המלצות"""
         total = sum(len(v) for v in self.recommendations.values())
@@ -295,6 +395,14 @@ class TuneAI:
             for item in self.recommendations['blacklist'][:5]:
                 print(f"   🚫 \"{item['term']}\" - {item['count']} פוסטים")
             print(f"   💡 המלצה: הוסף ל-blacklist\n")
+
+        if self.recommendations['misclassified']:
+            print(f"4️⃣ פוסטים חשודים ({len(self.recommendations['misclassified'])}):")
+            for item in self.recommendations['misclassified'][:5]:
+                print(f"   ⚠️ Post #{item['post_id']} - {item['type']}")
+                print(f"      {item['reason']}")
+                print(f"      תצוגה: {item['content_preview']}")
+            print(f"   💡 המלצה: בדוק ידנית - אולי צריך לעדכן הנחיות AI\n")
 
         print("=" * 70)
         print("💡 הרץ עם --apply כדי ליישם, או --interactive לבחור")
