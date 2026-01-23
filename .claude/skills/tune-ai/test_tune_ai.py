@@ -56,7 +56,6 @@ class TuneAITests:
         print("📁 בודק קיום קבצים...")
 
         required_files = [
-            'tune_ai.py',
             'config.json',
             'ai_agents.py',
             'database.py'

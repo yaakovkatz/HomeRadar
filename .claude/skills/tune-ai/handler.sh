@@ -4,8 +4,9 @@
 # Get arguments passed to the skill
 ARGS="$@"
 
-# Change to project directory
-cd /home/user/HomeRadar
+# Get the directory where this script is located (the skill directory)
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="/home/user/HomeRadar"
 
 echo "======================================================================="
 echo "🎯 /tune-ai Skill"
@@ -16,7 +17,8 @@ echo ""
 if [[ ! "$ARGS" =~ "--skip-tests" ]]; then
     echo "🧪 מריץ טסטים אוטומטיים..."
     echo "-----------------------------------------------------------------------"
-    python3 test_tune_ai.py
+    cd "$PROJECT_DIR"
+    python3 "$SKILL_DIR/test_tune_ai.py"
     TEST_EXIT_CODE=$?
 
     if [ $TEST_EXIT_CODE -ne 0 ]; then
@@ -32,4 +34,5 @@ if [[ ! "$ARGS" =~ "--skip-tests" ]]; then
 fi
 
 # הרץ את tune_ai עם הארגומנטים
-python3 tune_ai.py $ARGS
+cd "$PROJECT_DIR"
+python3 "$SKILL_DIR/tune_ai.py" $ARGS
