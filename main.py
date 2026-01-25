@@ -307,12 +307,11 @@ class GuardianGUI:
         stats = {}
         for city, neighborhoods in all_stats.items():
             if city in ALLOWED_CITIES:
-                # סנן רק שכונות שבמאגר
+                # סנן רק שכונות (לא רחובות!)
                 filtered_neighborhoods = {
                     neighborhood: count
                     for neighborhood, count in neighborhoods.items()
                     if not neighborhood.startswith('רחוב')  # לא רחובות
-                    and neighborhood in known_neighborhoods.get(city, [])  # רק שכונות מהמאגר
                 }
                 if filtered_neighborhoods:
                     stats[city] = filtered_neighborhoods
