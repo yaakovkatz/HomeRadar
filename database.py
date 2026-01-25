@@ -235,7 +235,9 @@ class PostDatabase:
                         print(f"  ❌ Agent 1 failed: {e}")
     
                 # בדיקה: האם לסנן? (אבל נשמור בכל מקרה!)
-                is_filtered = (ai_result and ai_result['category'] != 'RELEVANT')
+                # SUSPECTED_BROKER נשאר (לא מסוננים אוטומטית)
+                is_filtered = (ai_result and
+                              ai_result['category'] not in ['RELEVANT', 'SUSPECTED_BROKER'])
     
                 if is_filtered:
                     if ai_result['is_broker']:

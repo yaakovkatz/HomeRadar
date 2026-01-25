@@ -637,6 +637,7 @@ class GuardianGUI:
         tree.pack(fill='both', expand=True)
         tree.tag_configure('oddrow', background='white')
         tree.tag_configure('evenrow', background='#f2f6f8')
+        tree.tag_configure('suspected', background='#fff3cd', foreground='#856404')  # צהוב לחשודים
 
         status_var = tk.StringVar()
 
@@ -700,7 +701,12 @@ class GuardianGUI:
                 link = post['post_url']
                 post_id = post.get('id', 0)
 
-                row_tag = 'evenrow' if i % 2 == 0 else 'oddrow'
+                # בדיקה: האם זה חשוד למתווך?
+                category = post.get('category', 'RELEVANT')
+                if category == 'SUSPECTED_BROKER':
+                    row_tag = 'suspected'
+                else:
+                    row_tag = 'evenrow' if i % 2 == 0 else 'oddrow'
 
                 tree.insert('', 'end',
                             values=(i + 1, author, city, neighborhood, street, price, rooms, phone, group_display,

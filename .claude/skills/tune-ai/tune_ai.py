@@ -118,11 +118,11 @@ class TuneAI:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
-            # שלוף פוסטים שסומנו כמתווכים
+            # שלוף פוסטים שסומנו כמתווכים או חשודים
             cursor.execute("""
-                SELECT content, author, ai_reason
+                SELECT content, author, ai_reason, category
                 FROM posts
-                WHERE is_broker = 1 OR category = 'BROKER'
+                WHERE is_broker = 1 OR category = 'BROKER' OR category = 'SUSPECTED_BROKER'
                 LIMIT 100
             """)
 
@@ -135,6 +135,7 @@ class TuneAI:
 
         # חלץ שמות חברות
         broker_names = []
+        suspected_names = []  # רשימה נפרדת לחשודים
         patterns = [
             r'נדל["\']ן\s+(\w+)',  # נדל"ן X
             r'(\w+)\s+נכסים',      # X נכסים
@@ -142,30 +143,54 @@ class TuneAI:
             r'מתווך[ת]?\s+(\w+)',  # מתווך X
         ]
 
-        for content, author, reason in broker_posts:
+        for content, author, reason, category in broker_posts:
             text = content + " " + (author or "") + " " + (reason or "")
 
             for pattern in patterns:
                 matches = re.findall(pattern, text, re.IGNORECASE)
-                broker_names.extend(matches)
+                if category == 'SUSPECTED_BROKER':
+                    suspected_names.extend(matches)
+                else:
+                    broker_names.extend(matches)
 
         # ספור תדירויות
-        counter = Counter(broker_names)
+        confirmed_counter = Counter(broker_names)
+        suspected_counter = Counter(suspected_names)
 
-        # סנן רק חדשים ופופולריים
-        for name, count in counter.most_common(10):
+        # סנן רק חדשים ופופולריים (מתווכים וודאיים)
+        for name, count in confirmed_counter.most_common(10):
             if count >= 3 and name.lower() not in existing_keywords:
                 self.recommendations['brokers'].append({
                     'term': name,
                     'count': count,
-                    'reason': f"מופיע {count} פעמים בפוסטי מתווכים"
+                    'reason': f"מופיע {count} פעמים בפוסטי מתווכים וודאיים",
+                    'type': 'confirmed'
+                })
+
+        # חשודים (גם אם רק 1-2 פעמים)
+        for name, count in suspected_counter.most_common(10):
+            if name.lower() not in existing_keywords:
+                self.recommendations['brokers'].append({
+                    'term': name,
+                    'count': count,
+                    'reason': f"חשוד למתווך ({count} פוסטים)",
+                    'type': 'suspected'
                 })
 
         # הדפסה
         if self.recommendations['brokers']:
-            print(f"  💡 נמצאו {len(self.recommendations['brokers'])} מתווכים חדשים:")
-            for item in self.recommendations['brokers'][:5]:
-                print(f"     🔍 '{item['term']}' - {item['count']} פוסטים")
+            confirmed = [b for b in self.recommendations['brokers'] if b.get('type') == 'confirmed']
+            suspected = [b for b in self.recommendations['brokers'] if b.get('type') == 'suspected']
+
+            if confirmed:
+                print(f"  🔴 נמצאו {len(confirmed)} מתווכים וודאיים:")
+                for item in confirmed[:5]:
+                    print(f"     ⚠️ '{item['term']}' - {item['count']} פוסטים")
+
+            if suspected:
+                print(f"  🟡 נמצאו {len(suspected)} מתווכים חשודים:")
+                for item in suspected[:5]:
+                    print(f"     🔍 '{item['term']}' - {item['count']} פוסטים (חשד)")
         else:
             print("  ✅ לא נמצאו מתווכים חדשים")
 

@@ -157,15 +157,16 @@ class Analytics:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
-            # שליפת כל הדירות הרלוונטיות עם עיר ושכונה (ללא מתווכים)
+            # שליפת כל הדירות הרלוונטיות עם עיר (עם או בלי שכונה)
             cursor.execute('''
-                SELECT city, location, COUNT(*) as count
+                SELECT city,
+                       COALESCE(location, 'כללי') as location,
+                       COUNT(*) as count
                 FROM posts
                 WHERE is_relevant = 1
-                AND (category IS NULL OR category = 'RELEVANT')
+                AND (category IS NULL OR category = 'RELEVANT' OR category = 'SUSPECTED_BROKER')
                 AND city IS NOT NULL
-                AND location IS NOT NULL
-                GROUP BY city, location
+                GROUP BY city, COALESCE(location, 'כללי')
                 ORDER BY city, count DESC
             ''')
 

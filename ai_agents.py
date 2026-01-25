@@ -104,6 +104,18 @@ class AIAgents:
 - תמונה או טקסט עם "כונס נכסים", "מכרז", "הזמנה להציע הצעות"
 - מכירה פומבית, רכישת זכויות
 
+**SUSPECTED_BROKER** - דירה רלוונטית עם חשד למתווך 🟡
+- **יש תיאור דירה ספציפית** (כמו RELEVANT)
+- אבל יש סימנים חשודים שזה אולי מתווך:
+  * שם חברה: "מור נכסים", "אריה נכסים", "[שם] real estate"
+  * מבנה מקצועי מדי (אבל ללא מספר רישיון!)
+  * טון עסקי חזק (אבל לא מספיק ברור)
+- **לא מספיק ראיות חזקות** לסווג כ-BROKER וודאי
+- **דוגמאות:**
+  * "דירה 4 חדרים... מור נכסים 054-1234567" → SUSPECTED_BROKER
+  * "להשכרה בבני ברק... נכסים פלוס ליאור" → SUSPECTED_BROKER
+- **המטרה:** לתת למשתמש להחליט אם להוסיף לרשימה שחורה
+
 **BROKER** - מתווך מחפש לקוחות (לא דירה ספציפית!)
 - כתוב "מחפש לקוחות", "תיק נכסים", "שירות תיווך"
 - אין תיאור דירה ספציפית
@@ -169,12 +181,13 @@ class AIAgents:
 }}
 
 **כללים:**
-1. אם זו דירה ממתווך (גלוי או סמוי) → category: "RELEVANT", is_broker: true
-2. אם מתווך מחפש לקוחות → category: "BROKER", is_broker: true
-3. אם מכרז/כונס נכסים → category: "AUCTION", is_broker: false
-4. confidence: 0.5-1.0 (עד כמה אתה בטוח)
-5. אם confidence < 0.5 → category: "RELEVANT" (במקרה ספק)
-6. **מתווך סמוי** (חתימה "נדל״ן X", מספר נכסים, וכו') → is_broker: true
+1. **מתווך וודאי** (מספר רישיון / חתימה מפורשת) → category: "RELEVANT", is_broker: true
+2. **חשד למתווך** (שם חברת נכסים / מבנה עסקי אבל לא ברור) → category: "SUSPECTED_BROKER", is_broker: false
+3. אם מתווך מחפש לקוחות (לא דירה ספציפית) → category: "BROKER", is_broker: true
+4. אם מכרז/כונס נכסים → category: "AUCTION", is_broker: false
+5. confidence: 0.5-1.0 (עד כמה אתה בטוח)
+6. אם confidence < 0.5 → category: "RELEVANT" (במקרה ספק)
+7. **שם חברה כמו "מור נכסים", "אריה נכסים"** → SUSPECTED_BROKER (לא RELEVANT!)
 
 **דוגמאות:**
 
@@ -199,6 +212,23 @@ class AIAgents:
 "💎 3 דירות חדשות בתל אביב! 🏠
 Real Estate Plus | שירה 050-1234567"
 → category: "RELEVANT", is_broker: true, reason: "מתווך (מספר נכסים + Real Estate Plus)"
+
+🟡 חשוד למתווך (שם חברה):
+"למכירה ברחוב השניים בבני ברק
+דירת 4 חדרים - מרווחת ומוארת - 85 מ״ר
+לפרטים נוספים - ליאור - 0545477042
+מור נכסים"
+→ category: "SUSPECTED_BROKER", is_broker: false, reason: "חשד למתווך (מור נכסים)"
+
+🟡 חשוד למתווך (פורמט עסקי):
+"דירה 5 חדרים בירושלים 🏠 מיקום מעולה ✨
+אריה נכסים - 054-1234567"
+→ category: "SUSPECTED_BROKER", is_broker: false, reason: "חשד למתווך (אריה נכסים)"
+
+🟡 חשוד למתווך (real estate):
+"3 rooms apartment in Beit Shemesh
+For details: Dan Real Estate 052-5555555"
+→ category: "SUSPECTED_BROKER", is_broker: false, reason: "חשד למתווך (Dan Real Estate)"
 
 ❌ לא מתווך:
 "דירה יפה להשכרה! 3 חדרים, מעלית, חניה 🏡
