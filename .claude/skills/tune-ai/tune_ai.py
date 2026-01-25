@@ -32,6 +32,7 @@ class TuneAI:
             'settlements': [],
             'blacklist': [],
             'spam': [],
+            'repeat_posters': [],
             'misclassified': []
         }
 
@@ -60,12 +61,17 @@ class TuneAI:
         print("🚫 מחפש ביטויים חדשים לחסימה...")
         self._find_blacklist_terms()
 
-        # 5. זיהוי פוסטים שסווגו לא נכון
+        # 5. זיהוי פוסטים חוזרים
+        print("\n" + "-" * 70)
+        print("🔁 מחפש משתמשים שמפרסמים הרבה פעמים...")
+        self._find_repeat_posters()
+
+        # 6. זיהוי פוסטים שסווגו לא נכון
         print("\n" + "-" * 70)
         print("⚠️ מחפש פוסטים שאולי סווגו לא נכון...")
         self._find_misclassified_posts()
 
-        # 6. סיכום המלצות
+        # 7. סיכום המלצות
         print("\n" + "=" * 70)
         self._print_recommendations()
 
@@ -273,6 +279,47 @@ class TuneAI:
         else:
             print("  ✅ לא נמצאו ביטויים חדשים")
 
+    def _find_repeat_posters(self):
+        """מזהה משתמשים שמפרסמים הרבה פעמים - אולי מתווכים סמויים"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            # ספור פוסטים לפי author (רק פוסטים רלוונטיים שלא סומנו כמתווכים)
+            cursor.execute("""
+                SELECT author, COUNT(*) as post_count
+                FROM posts
+                WHERE author IS NOT NULL
+                AND author != ''
+                AND is_relevant = 1
+                AND is_broker = 0
+                GROUP BY author
+                HAVING post_count >= 5
+                ORDER BY post_count DESC
+                LIMIT 20
+            """)
+
+            repeat_posters = cursor.fetchall()
+
+        # בנה רשימת המלצות
+        if 'repeat_posters' not in self.recommendations:
+            self.recommendations['repeat_posters'] = []
+
+        for author, count in repeat_posters:
+            self.recommendations['repeat_posters'].append({
+                'author': author,
+                'count': count,
+                'reason': f"פרסם {count} פוסטים - אולי מתווך סמוי"
+            })
+
+        # הדפסה
+        if self.recommendations['repeat_posters']:
+            print(f"  ⚠️ נמצאו {len(self.recommendations['repeat_posters'])} משתמשים חשודים:")
+            for item in self.recommendations['repeat_posters'][:5]:
+                print(f"     🔁 '{item['author']}' - {item['count']} פוסטים")
+            print(f"   💡 המלצה: בדוק ידנית - אם זה מתווך הוסף לbroker_keywords")
+        else:
+            print("  ✅ לא נמצאו משתמשים חשודים")
+
     def _find_misclassified_posts(self):
         """מזהה פוסטים שאולי סווגו לא נכון"""
         with sqlite3.connect(self.db_path) as conn:
@@ -396,8 +443,14 @@ class TuneAI:
                 print(f"   🚫 \"{item['term']}\" - {item['count']} פוסטים")
             print(f"   💡 המלצה: הוסף ל-blacklist\n")
 
+        if self.recommendations.get('repeat_posters'):
+            print(f"4️⃣ משתמשים חוזרים ({len(self.recommendations['repeat_posters'])}):")
+            for item in self.recommendations['repeat_posters'][:5]:
+                print(f"   🔁 \"{item['author']}\" - {item['count']} פוסטים")
+            print(f"   💡 המלצה: בדוק ידנית - אם זה מתווך הוסף את שמו לbroker_keywords\n")
+
         if self.recommendations['misclassified']:
-            print(f"4️⃣ פוסטים חשודים ({len(self.recommendations['misclassified'])}):")
+            print(f"5️⃣ פוסטים חשודים ({len(self.recommendations['misclassified'])}):")
             for item in self.recommendations['misclassified'][:5]:
                 print(f"   ⚠️ Post #{item['post_id']} - {item['type']}")
                 print(f"      {item['reason']}")
