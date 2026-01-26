@@ -147,9 +147,16 @@ class TuneAI:
 
         # Patterns לשמות פרטיים מתוך ai_reason
         name_patterns = [
-            r'חתימה עסקית:\s*([^+)\n]+)',  # "חתימה עסקית: ירדן גמליאל"
-            r'חתימה:\s*([^)]\n]+)',         # "חתימה: נדל"ן JF"
-            r'מתווך\s*\(([^)]+)\)',         # "מתווך (ירדן גמליאל)"
+            r'חתימה עסקית:\s*([א-תA-Za-z\s]+?)(?:\s*\+|$|\))',  # "חתימה עסקית: ירדן גמליאל"
+            r'חתימה:\s*([א-תA-Za-z\s]+?)(?:\s*\+|$|\))',         # "חתימה: נדל"ן JF"
+        ]
+
+        # דפוסים להתעלמות (לא לתפוס אותם!)
+        ignore_patterns = [
+            r'מילת מפתח',
+            r'סוכן נדל',
+            r'מספר רישיון',
+            r'מ\.ר\.',
         ]
 
         for content, author, reason, category in broker_posts:
@@ -158,19 +165,34 @@ class TuneAI:
             # 1. חיפוש שמות חברות (patterns רגילים)
             for pattern in company_patterns:
                 matches = re.findall(pattern, text_all, re.IGNORECASE)
-                if category == 'SUSPECTED_BROKER':
-                    suspected_names.extend(matches)
-                else:
-                    broker_names.extend(matches)
+                for match in matches:
+                    # בדוק אם זה לא דפוס להתעלמות
+                    if not any(ignore in match for ignore in ['מילת', 'מפתח']):
+                        if category == 'SUSPECTED_BROKER':
+                            suspected_names.append(match)
+                        else:
+                            broker_names.append(match)
 
             # 2. חיפוש שמות פרטיים מתוך ai_reason
             if reason:
+                # דלג אם יש "מילת מפתח" ב-reason
+                if 'מילת מפתח' in reason:
+                    continue
+
                 for pattern in name_patterns:
                     matches = re.findall(pattern, reason, re.IGNORECASE)
                     for match in matches:
-                        # נקה את השם (הסר רווחים מיותרים, +, וכו')
-                        clean_name = match.strip().split('+')[0].strip()
-                        if clean_name and len(clean_name) > 3:  # לפחות 3 תווים
+                        # נקה את השם (הסר רווחים מיותרים)
+                        clean_name = match.strip()
+
+                        # סינון: דלג על דפוסים להתעלמות
+                        should_ignore = False
+                        for ignore_pat in ignore_patterns:
+                            if re.search(ignore_pat, clean_name, re.IGNORECASE):
+                                should_ignore = True
+                                break
+
+                        if not should_ignore and clean_name and len(clean_name) > 3:
                             if category == 'SUSPECTED_BROKER' or category == 'BROKER':
                                 suspected_names.append(clean_name)
                             else:
@@ -180,7 +202,9 @@ class TuneAI:
             if category == 'BROKER' and author:
                 # אם האוטור הוא שם (לא "Admin" או "Group")
                 if author and len(author.split()) <= 3 and author[0].isupper():
-                    broker_names.append(author.strip())
+                    # ודא שאין "מילת מפתח" בשם
+                    if 'מילת' not in author and 'מפתח' not in author:
+                        broker_names.append(author.strip())
 
         # ספור תדירויות
         confirmed_counter = Counter(broker_names)
