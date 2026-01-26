@@ -291,9 +291,25 @@ class PostDatabase:
                     return False  # ← חשוב! מחזירים False כדי שלא יופיע כ"חדש"
     
                 # =========================================
-                # ✅ אם הגענו לכאן - זה RELEVANT!
+                # ✅ אם הגענו לכאן - זה RELEVANT או SUSPECTED_BROKER!
                 # ממשיכים עם Regex ו-Agent 2
                 # =========================================
+
+                # לוג מיוחד ל-SUSPECTED_BROKER
+                if ai_result and ai_result['category'] == 'SUSPECTED_BROKER':
+                    print(f"\n  {'='*60}")
+                    print(f"  🟡 מתווך חשוד - נשמר לבדיקה ידנית")
+                    print(f"  {'='*60}")
+                    print(f"  👤 מחבר: {author or 'לא ידוע'}")
+                    content_preview = content[:150].replace('\n', ' ')
+                    if len(content) > 150:
+                        content_preview += "..."
+                    print(f"  📄 תוכן: {content_preview}")
+                    print(f"  ⚠️ סיבת חשד: {ai_result['reason']}")
+                    print(f"  📊 רמת ביטחון: {ai_result['confidence']:.0%}")
+                    print(f"  💡 המלצה: בדוק בטבלה (יופיע בצהוב) והחלט אם להוסיף ל-broker_keywords")
+                    print(f"  {'='*60}\n")
+
                 details = self.extract_details(content)
     
                 # =========================================
