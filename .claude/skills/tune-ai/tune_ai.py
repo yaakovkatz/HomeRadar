@@ -369,7 +369,30 @@ class TuneAI:
             relevant_posts = cursor.fetchall()
             for post_id, content, author, city in relevant_posts:
                 text = (content + " " + (author or "")).lower()
-                found_keywords = [kw for kw in broker_keywords if kw in text]
+
+                # דפוסי שלילה (כמו ב-listener.py)
+                negation_patterns = [
+                    r'\bללא\s+',      # "ללא תיווך"
+                    r'\bבלי\s+',      # "בלי תיווך"
+                    r'\bלא\s+',       # "לא תיווך"
+                    r'\bללא\s+דמי\s+', # "ללא דמי תיווך"
+                    r'\bבלי\s+דמי\s+', # "בלי דמי תיווך"
+                ]
+
+                found_keywords = []
+                for kw in broker_keywords:
+                    if kw in text:
+                        # בדוק אם יש שלילה לפני המילה
+                        is_negated = False
+                        for negation in negation_patterns:
+                            pattern = negation + re.escape(kw)
+                            if re.search(pattern, text):
+                                is_negated = True
+                                break
+
+                        # רק אם אין שלילה - הוסף לרשימה
+                        if not is_negated:
+                            found_keywords.append(kw)
 
                 if found_keywords:
                     self.recommendations['misclassified'].append({
