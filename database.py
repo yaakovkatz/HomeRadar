@@ -240,11 +240,28 @@ class PostDatabase:
                               ai_result['category'] not in ['RELEVANT', 'SUSPECTED_BROKER'])
     
                 if is_filtered:
+                    # הדפסה מפורטת של הסינון
+                    print(f"\n  {'='*60}")
+                    print(f"  🔴 פוסט סונן - {ai_result['category']}")
+                    print(f"  {'='*60}")
+                    print(f"  👤 מחבר: {author or 'לא ידוע'}")
+
+                    # הצג 150 תווים ראשונים של התוכן
+                    content_preview = content[:150].replace('\n', ' ')
+                    if len(content) > 150:
+                        content_preview += "..."
+                    print(f"  📄 תוכן: {content_preview}")
+
+                    print(f"  ❌ סיבת סינון: {ai_result['reason']}")
+                    print(f"  📊 רמת ביטחון: {ai_result['confidence']:.0%}")
+
                     if ai_result['is_broker']:
-                        print(f"  🚫 מתווך נחסם! (AI זיהה) - {ai_result['reason']}")
+                        print(f"  🚫 סוג: מתווך (AI זיהה)")
                     else:
-                        print(f"  🔴 סונן ({ai_result['category']}): {ai_result['reason']}")
+                        print(f"  🗑️ סוג: {ai_result['category']}")
+
                     print(f"  💾 שומר ב-DB (כדי לא לבדוק שוב)")
+                    print(f"  {'='*60}\n")
     
                     # ⚡ דילוג על Agent 2 - אין טעם למלא חסרים לספאם!
                     # שמירה מהירה ב-DB עם נתונים בסיסיים
