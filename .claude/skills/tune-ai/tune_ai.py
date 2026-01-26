@@ -228,7 +228,24 @@ class TuneAI:
         # סנן רק חדשים ופופולריים (מתווכים וודאיים)
         for name, count in confirmed_counter.most_common(10):
             clean_name = name.strip()
-            if count >= 2 and clean_name.lower() not in existing_keywords:
+            clean_name_lower = clean_name.lower()
+
+            # בדוק אם השם כבר קיים, או אם הוא חלק משם ארוך יותר שכבר קיים
+            is_already_blocked = False
+
+            # בדיקה 1: האם השם עצמו קיים?
+            if clean_name_lower in existing_keywords:
+                is_already_blocked = True
+
+            # בדיקה 2: האם השם הוא חלק משם ארוך יותר? (למשל "מור" ב"מור נכסים")
+            if not is_already_blocked:
+                for existing_kw in existing_keywords:
+                    # בדוק אם השם שמצאנו הוא חלק מביטוי ארוך יותר שכבר קיים
+                    if clean_name_lower in existing_kw and len(clean_name_lower) < len(existing_kw):
+                        is_already_blocked = True
+                        break
+
+            if count >= 2 and not is_already_blocked:
                 posts_list = broker_posts_dict.get(name, [])
                 self.recommendations['brokers'].append({
                     'term': clean_name,
@@ -241,7 +258,24 @@ class TuneAI:
         # חשודים (גם אם רק 1 פעם)
         for name, count in suspected_counter.most_common(10):
             clean_name = name.strip()
-            if clean_name.lower() not in existing_keywords:
+            clean_name_lower = clean_name.lower()
+
+            # בדוק אם השם כבר קיים, או אם הוא חלק משם ארוך יותר שכבר קיים
+            is_already_blocked = False
+
+            # בדיקה 1: האם השם עצמו קיים?
+            if clean_name_lower in existing_keywords:
+                is_already_blocked = True
+
+            # בדיקה 2: האם השם הוא חלק משם ארוך יותר? (למשל "מור" ב"מור נכסים")
+            if not is_already_blocked:
+                for existing_kw in existing_keywords:
+                    # בדוק אם השם שמצאנו הוא חלק מביטוי ארוך יותר שכבר קיים
+                    if clean_name_lower in existing_kw and len(clean_name_lower) < len(existing_kw):
+                        is_already_blocked = True
+                        break
+
+            if not is_already_blocked:
                 posts_list = suspected_posts_dict.get(name, [])
                 self.recommendations['brokers'].append({
                     'term': clean_name,
