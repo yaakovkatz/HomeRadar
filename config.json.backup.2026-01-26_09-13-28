@@ -7,8 +7,7 @@
     "https://www.facebook.com/groups/554617481265118/?locale=he_IL",
     "https://www.facebook.com/groups/753772402227239/",
     "https://www.facebook.com/groups/350803305695215/",
-    "https://www.facebook.com/groups/390104961200683",
-    "https://www.facebook.com/groups/192903665812497/?action_source=group_mall_recommendation_affordance"
+    "https://www.facebook.com/groups/390104961200683"
   ],
   "groups_names": [
     "דירות מפה לאוזן בירושלים",
@@ -17,8 +16,7 @@
     "דירה להשכיר - ירושלים Rent Apartment in Jerusalem",
     "דירות להשכרה בבני ברק",
     "דירות להשכרה נחלאות ♣",
-    "דירות ללא תיווך בית שמש והסביבה",
-    "דירות בירושלים ללא תיווך"
+    "דירות ללא תיווך בית שמש והסביבה"
   ],
   "search_settings": {
     "cities": [
@@ -85,9 +83,7 @@
         "מפרסם עבור",
         "מפרסמת עבור",
         "מפרסם עבור חברה",
-        "מפרסמת עבור חברה",
-        "ירדן גמליאל",
-        "לנדסמן ירושלים"
+        "מפרסמת עבור חברה"
       ]
     }
   },
@@ -103,7 +99,6 @@
     "max_time_on_facebook": 15
   },
   "groups_active": [
-    true,
     true,
     true,
     true,
