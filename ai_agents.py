@@ -147,6 +147,15 @@ class AIAgents:
 **WANTED** - מחפש דירה (לא מוכר!)
 - "מחפש דירה", "דרוש", "צריך"
 
+**ROOMMATE** - חיפוש שותף/סאבלט ❌
+- **סאבלט/תת-השכרה:** "מסאבלט", "תת השכרה", "להשכיר את הדירה שלי"
+- **חיפוש שותפים:** "מחפש שותף", "מחפשת שותפה", "שותף לדירה"
+- **הצעת חדר:** "חדר פנוי", "חדר להשכרה בדירה משותפת"
+- **דוגמאות:**
+  * "מסאבלט דירה לסופ״ש" → ROOMMATE
+  * "מחפשת שותפה לדירה בנחלאות" → ROOMMATE
+  * "חדר פנוי בדירה 4 חדרים" → ROOMMATE
+
 **QUESTION** - שאלה
 - "מישהו יודע?", "איך...?", "עזרה"
 
@@ -182,13 +191,14 @@ class AIAgents:
 }}
 
 **כללים:**
-1. **מתווך וודאי** (מספר רישיון / חתימה מפורשת) → category: "RELEVANT", is_broker: true
-2. **חשד למתווך** (שם חברת נכסים / מבנה עסקי אבל לא ברור) → category: "SUSPECTED_BROKER", is_broker: false
-3. אם מתווך מחפש לקוחות (לא דירה ספציפית) → category: "BROKER", is_broker: true
-4. אם מכרז/כונס נכסים → category: "AUCTION", is_broker: false
-5. confidence: 0.5-1.0 (עד כמה אתה בטוח)
-6. אם confidence < 0.5 → category: "RELEVANT" (במקרה ספק)
-7. **שם חברה כמו "מור נכסים", "אריה נכסים"** → SUSPECTED_BROKER (לא RELEVANT!)
+1. **סאבלט/שותפים** - "מסאבלט", "תת השכרה", "מחפש שותף" → category: "ROOMMATE" ⚠️ חשוב!
+2. **מתווך וודאי** (מספר רישיון / חתימה מפורשת) → category: "RELEVANT", is_broker: true
+3. **חשד למתווך** (שם חברת נכסים / מבנה עסקי אבל לא ברור) → category: "SUSPECTED_BROKER", is_broker: false
+4. אם מתווך מחפש לקוחות (לא דירה ספציפית) → category: "BROKER", is_broker: true
+5. אם מכרז/כונס נכסים → category: "AUCTION", is_broker: false
+6. confidence: 0.5-1.0 (עד כמה אתה בטוח)
+7. אם confidence < 0.5 → category: "RELEVANT" (במקרה ספק)
+8. **שם חברה כמו "מור נכסים", "אריה נכסים"** → SUSPECTED_BROKER (לא RELEVANT!)
 
 **חשוב - פורמט ה-reason:**
 - **תמיד ציין את המיקום שזיהית!**
@@ -249,6 +259,16 @@ For details: Dan Real Estate 052-5555555"
 "Beautiful apartment in German Colony
 3 bedrooms, 2 bathrooms"
 → category: "NON_URBAN", is_broker: false, reason: "German Colony - שכונה לא מוכרת (ציין Jerusalem אם זה בירושלים!)"
+
+🚫 סאבלט (לא רלוונטי):
+"מסאבלט את הדירה בנחלאות לסופ״ש הבא: 4-7.2
+הדירה מהממת, יש לה גינה גדולה, מטבח מאובזר..."
+→ category: "ROOMMATE", is_broker: false, reason: "נחלאות, ירושלים - סאבלט (לא רלוונטי)"
+
+🚫 חיפוש שותף (לא רלוונטי):
+"מחפשת שותפה לדירה 3 חדרים בבני ברק
+קומה 2, מעלית, 1,500₪ לחודש"
+→ category: "ROOMMATE", is_broker: false, reason: "בני ברק - חיפוש שותפה (לא רלוונטי)"
 
 ✅ דירה רלוונטית:
 "דירה יפה להשכרה! 3 חדרים, מעלית, חניה 🏡
