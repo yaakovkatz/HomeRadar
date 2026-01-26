@@ -114,7 +114,7 @@ class TuneAI:
         print(f"  ⚠️ ספאם: {stats['spam']}")
 
     def _find_new_brokers(self):
-        """מוצא שמות מתווכים חדשים"""
+        """מוצא שמות מתווכים חדשים - גם חברות וגם שמות פרטיים"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
@@ -133,25 +133,54 @@ class TuneAI:
             config = json.load(f)
         existing_keywords = set(kw.lower() for kw in config['search_settings']['search_settings']['broker_keywords'])
 
-        # חלץ שמות חברות
+        # חלץ שמות חברות + שמות פרטיים
         broker_names = []
         suspected_names = []  # רשימה נפרדת לחשודים
-        patterns = [
+
+        # Patterns לשמות חברות
+        company_patterns = [
             r'נדל["\']ן\s+(\w+)',  # נדל"ן X
             r'(\w+)\s+נכסים',      # X נכסים
             r'Real\s+Estate\s+(\w+)',  # Real Estate X
             r'מתווך[ת]?\s+(\w+)',  # מתווך X
         ]
 
-        for content, author, reason, category in broker_posts:
-            text = content + " " + (author or "") + " " + (reason or "")
+        # Patterns לשמות פרטיים מתוך ai_reason
+        name_patterns = [
+            r'חתימה עסקית:\s*([^+)\n]+)',  # "חתימה עסקית: ירדן גמליאל"
+            r'חתימה:\s*([^)]\n]+)',         # "חתימה: נדל"ן JF"
+            r'מתווך\s*\(([^)]+)\)',         # "מתווך (ירדן גמליאל)"
+        ]
 
-            for pattern in patterns:
-                matches = re.findall(pattern, text, re.IGNORECASE)
+        for content, author, reason, category in broker_posts:
+            text_all = content + " " + (author or "") + " " + (reason or "")
+
+            # 1. חיפוש שמות חברות (patterns רגילים)
+            for pattern in company_patterns:
+                matches = re.findall(pattern, text_all, re.IGNORECASE)
                 if category == 'SUSPECTED_BROKER':
                     suspected_names.extend(matches)
                 else:
                     broker_names.extend(matches)
+
+            # 2. חיפוש שמות פרטיים מתוך ai_reason
+            if reason:
+                for pattern in name_patterns:
+                    matches = re.findall(pattern, reason, re.IGNORECASE)
+                    for match in matches:
+                        # נקה את השם (הסר רווחים מיותרים, +, וכו')
+                        clean_name = match.strip().split('+')[0].strip()
+                        if clean_name and len(clean_name) > 3:  # לפחות 3 תווים
+                            if category == 'SUSPECTED_BROKER' or category == 'BROKER':
+                                suspected_names.append(clean_name)
+                            else:
+                                broker_names.append(clean_name)
+
+            # 3. חיפוש מה-author אם זה BROKER וודאי
+            if category == 'BROKER' and author:
+                # אם האוטור הוא שם (לא "Admin" או "Group")
+                if author and len(author.split()) <= 3 and author[0].isupper():
+                    broker_names.append(author.strip())
 
         # ספור תדירויות
         confirmed_counter = Counter(broker_names)
@@ -159,19 +188,21 @@ class TuneAI:
 
         # סנן רק חדשים ופופולריים (מתווכים וודאיים)
         for name, count in confirmed_counter.most_common(10):
-            if count >= 3 and name.lower() not in existing_keywords:
+            clean_name = name.strip()
+            if count >= 2 and clean_name.lower() not in existing_keywords:
                 self.recommendations['brokers'].append({
-                    'term': name,
+                    'term': clean_name,
                     'count': count,
                     'reason': f"מופיע {count} פעמים בפוסטי מתווכים וודאיים",
                     'type': 'confirmed'
                 })
 
-        # חשודים (גם אם רק 1-2 פעמים)
+        # חשודים (גם אם רק 1 פעם)
         for name, count in suspected_counter.most_common(10):
-            if name.lower() not in existing_keywords:
+            clean_name = name.strip()
+            if clean_name.lower() not in existing_keywords:
                 self.recommendations['brokers'].append({
-                    'term': name,
+                    'term': clean_name,
                     'count': count,
                     'reason': f"חשוד למתווך ({count} פוסטים)",
                     'type': 'suspected'
@@ -643,13 +674,35 @@ class TuneAI:
         # מתווכים
         if self.recommendations['brokers']:
             if interactive:
-                response = input(f"\n❓ להוסיף {len(self.recommendations['brokers'])} מתווכים חדשים? (y/n): ")
-                if response.lower() != 'y':
-                    print("   ⏭️ דילגתי על מתווכים")
-                else:
-                    print("\n🔍 מוסיף broker_keywords...")
+                print(f"\n🔍 נמצאו {len(self.recommendations['brokers'])} מתווכים חדשים:")
+                print("   (כל מתווך יוצג בנפרד - תבחר האם להוסיף)\n")
+
+                # שאלה לגבי כל מתווך בנפרד
+                approved_brokers = []
+                for broker in self.recommendations['brokers']:
+                    term = broker['term']
+                    count = broker['count']
+                    broker_type = "🔴 וודאי" if broker.get('type') == 'confirmed' else "🟡 חשוד"
+
+                    print(f"\n   {broker_type}: '{term}' ({count} פוסטים)")
+                    print(f"   סיבה: {broker['reason']}")
+                    response = input(f"   💡 להוסיף '{term}' ל-broker_keywords? (y/n): ")
+
+                    if response.lower() == 'y':
+                        approved_brokers.append(broker)
+                        print(f"   ✅ '{term}' יתווסף")
+                    else:
+                        print(f"   ⏭️ דילגתי על '{term}'")
+
+                # הוסף רק את המאושרים
+                if approved_brokers:
+                    self.recommendations['brokers'] = approved_brokers
+                    print("\n🔍 מוסיף broker_keywords שנבחרו...")
                     added = self._apply_broker_keywords()
                     total_applied += added
+                else:
+                    print("\n   ⏭️ לא נבחרו מתווכים להוספה")
+                    self.recommendations['brokers'] = []
             else:
                 print("\n🔍 מוסיף broker_keywords...")
                 added = self._apply_broker_keywords()
