@@ -19,3 +19,6 @@ venv/
 # תיקיות של העורך קוד
 .idea/
 .vscode/
+
+# קבצי backup של tune-ai
+*.backup.*
