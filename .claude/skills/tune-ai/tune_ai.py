@@ -147,8 +147,9 @@ class TuneAI:
 
         # Patterns לשמות פרטיים מתוך ai_reason
         name_patterns = [
-            r'חתימה עסקית:\s*([א-תA-Za-z\s]+?)(?:\s*\+|$|\))',  # "חתימה עסקית: ירדן גמליאל"
-            r'חתימה:\s*([א-תA-Za-z\s]+?)(?:\s*\+|$|\))',         # "חתימה: נדל"ן JF"
+            r'חתימה עסקית:\s*([א-ת\sA-Za-z\'"״]+?)(?:\s*[\+\)]|$)',  # "חתימה עסקית: ירדן גמליאל"
+            r'חתימה:\s*([א-ת\sA-Za-z\'"״]+?)(?:\s*[\+\)]|$)',         # "חתימה: נדל"ן JF"
+            r'מתווך\s*\(([א-ת\sA-Za-z\'"״]+?)\)',                    # "מתווך (שם)"
         ]
 
         # דפוסים להתעלמות (לא לתפוס אותם!)
@@ -174,11 +175,7 @@ class TuneAI:
                             broker_names.append(match)
 
             # 2. חיפוש שמות פרטיים מתוך ai_reason
-            if reason:
-                # דלג אם יש "מילת מפתח" ב-reason
-                if 'מילת מפתח' in reason:
-                    continue
-
+            if reason and 'מילת מפתח' not in reason:
                 for pattern in name_patterns:
                     matches = re.findall(pattern, reason, re.IGNORECASE)
                     for match in matches:
@@ -193,18 +190,19 @@ class TuneAI:
                                 break
 
                         if not should_ignore and clean_name and len(clean_name) > 3:
-                            if category == 'SUSPECTED_BROKER' or category == 'BROKER':
-                                suspected_names.append(clean_name)
-                            else:
-                                broker_names.append(clean_name)
+                            # כל הפוסטים האלה (BROKER או SUSPECTED_BROKER) הם חשודים
+                            # כי אין להם מספר רישיון - רק שם פרטי
+                            suspected_names.append(clean_name)
 
             # 3. חיפוש מה-author אם זה BROKER וודאי
-            if category == 'BROKER' and author:
+            if category == 'BROKER' and author and 'מילת' not in author:
                 # אם האוטור הוא שם (לא "Admin" או "Group")
-                if author and len(author.split()) <= 3 and author[0].isupper():
-                    # ודא שאין "מילת מפתח" בשם
-                    if 'מילת' not in author and 'מפתח' not in author:
-                        broker_names.append(author.strip())
+                if len(author.split()) <= 3 and len(author.split()) >= 2:  # שם מלא (2-3 מילים)
+                    try:
+                        if author[0].isupper():
+                            suspected_names.append(author.strip())
+                    except:
+                        pass
 
         # ספור תדירויות
         confirmed_counter = Counter(broker_names)
