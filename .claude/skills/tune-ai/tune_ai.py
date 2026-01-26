@@ -29,6 +29,7 @@ class TuneAI:
         self.config_path = config_path
         self.recommendations = {
             'brokers': [],
+            'publishers_for_brokers': [],  # מפרסמים שעובדים עבור מתווכים
             'settlements': [],
             'blacklist': [],
             'spam': [],
@@ -50,6 +51,11 @@ class TuneAI:
         print("\n" + "-" * 70)
         print("🔍 מחפש מתווכים חדשים...")
         self._find_new_brokers()
+
+        # 2.5. זיהוי מפרסמים שעובדים עבור מתווכים
+        print("\n" + "-" * 70)
+        print("👤 מחפש מפרסמים שעובדים עבור מתווכים...")
+        self._find_publishers_for_brokers()
 
         # 3. זיהוי יישובים
         print("\n" + "-" * 70)
@@ -317,6 +323,91 @@ class TuneAI:
                             print(f"           👤 מחבר: {author}")
         else:
             print("  ✅ לא נמצאו מתווכים חדשים")
+
+    def _find_publishers_for_brokers(self):
+        """מוצא מפרסמים שעובדים עבור מתווכים - גם עם 1 פוסט!"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            # שלוף את כל הפוסטים (לא רק BROKER/SUSPECTED_BROKER)
+            cursor.execute("""
+                SELECT post_id, content, author, category
+                FROM posts
+                WHERE author IS NOT NULL
+                AND author != ''
+                LIMIT 200
+            """)
+
+            all_posts = cursor.fetchall()
+
+        # טען broker_keywords קיימים
+        with open(self.config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        broker_keywords = [kw.lower() for kw in config['search_settings']['search_settings']['broker_keywords']]
+        existing_keywords = set(broker_keywords)
+
+        # מילון: author -> [(post_id, content, broker_keywords_found), ...]
+        publishers_dict = {}
+
+        for post_id, content, author, category in all_posts:
+            content_lower = content.lower()
+
+            # בדוק אם התוכן מכיל broker_keywords
+            found_keywords = []
+            for kw in broker_keywords:
+                if kw in content_lower:
+                    found_keywords.append(kw)
+
+            # אם מצאנו broker_keywords בפוסט
+            if found_keywords:
+                author_lower = author.lower()
+
+                # בדוק אם ה-author עצמו כבר ב-broker_keywords (אז לא צריך להמליץ)
+                if author_lower in existing_keywords:
+                    continue
+
+                # הוסף את המפרסם לרשימה
+                if author not in publishers_dict:
+                    publishers_dict[author] = []
+
+                publishers_dict[author].append({
+                    'post_id': post_id,
+                    'content': content,
+                    'broker_keywords': found_keywords
+                })
+
+        # עכשיו יש לנו רשימה של authors שמפרסמים פוסטים עם broker_keywords
+        # המלץ לחסום אותם (גם אם יש להם רק 1 פוסט!)
+        for author, posts in publishers_dict.items():
+            # רק אם זה שם פרטי (2-3 מילים, מתחיל באות גדולה)
+            if len(author.split()) >= 2 and len(author.split()) <= 3:
+                try:
+                    if author[0].isupper():
+                        self.recommendations['publishers_for_brokers'].append({
+                            'author': author,
+                            'count': len(posts),
+                            'broker_keywords': posts[0]['broker_keywords'],  # המילים שנמצאו
+                            'posts': posts[:2]  # עד 2 פוסטים לתצוגה
+                        })
+                except:
+                    pass
+
+        # הדפסה
+        if self.recommendations['publishers_for_brokers']:
+            print(f"  🟠 נמצאו {len(self.recommendations['publishers_for_brokers'])} מפרסמים שעובדים עבור מתווכים:")
+            for item in self.recommendations['publishers_for_brokers'][:5]:
+                broker_kw_str = ', '.join(item['broker_keywords'][:2])
+                print(f"     👤 '{item['author']}' - {item['count']} פוסטים (מפרסם עבור: {broker_kw_str})")
+                # הצג תצוגה מקדימה של הפוסטים
+                for i, post in enumerate(item['posts'][:2], 1):
+                    preview = post['content'][:80].replace('\n', ' ')
+                    if len(post['content']) > 80:
+                        preview += "..."
+                    print(f"        📄 פוסט #{i}: {preview}")
+                    print(f"           💡 מכיל: {', '.join(post['broker_keywords'][:2])}")
+            print(f"   💡 המלצה: הוסף ל-broker_keywords (מפרסמים שעובדים עבור מתווכים)")
+        else:
+            print("  ✅ לא נמצאו מפרסמים חדשים")
 
     def _find_settlements(self):
         """מוצא יישובים שעברו"""
@@ -612,26 +703,40 @@ class TuneAI:
                         print(f"         👤 מחבר: {author}")
             print(f"   💡 המלצה: הוסף ל-broker_keywords\n")
 
+        if self.recommendations['publishers_for_brokers']:
+            print(f"2️⃣ מפרסמים שעובדים עבור מתווכים ({len(self.recommendations['publishers_for_brokers'])}):")
+            for item in self.recommendations['publishers_for_brokers'][:5]:
+                broker_kw_str = ', '.join(item['broker_keywords'][:2])
+                print(f"   🟠 \"{item['author']}\" - {item['count']} פוסטים (מפרסם עבור: {broker_kw_str})")
+                # הצג תצוגה מקדימה של הפוסטים
+                for i, post in enumerate(item['posts'][:2], 1):
+                    preview = post['content'][:80].replace('\n', ' ')
+                    if len(post['content']) > 80:
+                        preview += "..."
+                    print(f"      📄 פוסט #{i}: {preview}")
+                    print(f"         💡 מכיל: {', '.join(post['broker_keywords'][:2])}")
+            print(f"   💡 המלצה: הוסף ל-broker_keywords (מפרסמים עבור מתווכים)\n")
+
         if self.recommendations['settlements']:
-            print(f"2️⃣ יישובים ({len(self.recommendations['settlements'])}):")
+            print(f"3️⃣ יישובים ({len(self.recommendations['settlements'])}):")
             for item in self.recommendations['settlements'][:5]:
                 print(f"   🏘️ \"{item['term']}\" - {item['count']} פוסטים")
             print(f"   💡 המלצה: הוסף ל-NON_URBAN (ai_agents.py)\n")
 
         if self.recommendations['blacklist']:
-            print(f"3️⃣ Blacklist ({len(self.recommendations['blacklist'])}):")
+            print(f"4️⃣ Blacklist ({len(self.recommendations['blacklist'])}):")
             for item in self.recommendations['blacklist'][:5]:
                 print(f"   🚫 \"{item['term']}\" - {item['count']} פוסטים")
             print(f"   💡 המלצה: הוסף ל-blacklist\n")
 
         if self.recommendations.get('repeat_posters'):
-            print(f"4️⃣ משתמשים חוזרים ({len(self.recommendations['repeat_posters'])}):")
+            print(f"5️⃣ משתמשים חוזרים ({len(self.recommendations['repeat_posters'])}):")
             for item in self.recommendations['repeat_posters'][:5]:
                 print(f"   🔁 \"{item['author']}\" - {item['count']} פוסטים")
             print(f"   💡 המלצה: בדוק ידנית - אם זה מתווך הוסף את שמו לbroker_keywords\n")
 
         if self.recommendations['misclassified']:
-            print(f"5️⃣ פוסטים חשודים ({len(self.recommendations['misclassified'])}):")
+            print(f"6️⃣ פוסטים חשודים ({len(self.recommendations['misclassified'])}):")
             for item in self.recommendations['misclassified'][:5]:
                 print(f"   ⚠️ Post #{item['post_id']} - {item['type']}")
                 print(f"      {item['reason']}")
@@ -809,6 +914,73 @@ class TuneAI:
                 print("\n🔍 מוסיף broker_keywords...")
                 added = self._apply_broker_keywords()
                 total_applied += added
+
+        # מפרסמים שעובדים עבור מתווכים
+        if self.recommendations['publishers_for_brokers']:
+            if interactive:
+                print(f"\n👤 נמצאו {len(self.recommendations['publishers_for_brokers'])} מפרסמים שעובדים עבור מתווכים:")
+                print("   (כל מפרסם יוצג בנפרד - תבחר האם להוסיף)\n")
+
+                # שאלה לגבי כל מפרסם בנפרד
+                approved_publishers = []
+                for publisher in self.recommendations['publishers_for_brokers']:
+                    author = publisher['author']
+                    count = publisher['count']
+                    broker_kw = ', '.join(publisher['broker_keywords'][:2])
+
+                    print(f"\n   🟠 '{author}' ({count} פוסטים)")
+                    print(f"   מפרסם עבור: {broker_kw}")
+
+                    # הצג פוסט אחד לדוגמה
+                    if publisher['posts']:
+                        preview = publisher['posts'][0]['content'][:80].replace('\n', ' ')
+                        if len(publisher['posts'][0]['content']) > 80:
+                            preview += "..."
+                        print(f"   דוגמה: {preview}")
+
+                    response = input(f"   💡 להוסיף '{author}' ל-broker_keywords? (y/n): ")
+
+                    if response.lower() == 'y':
+                        approved_publishers.append(publisher)
+                        print(f"   ✅ '{author}' יתווסף")
+                    else:
+                        print(f"   ⏭️ דילגתי על '{author}'")
+
+                # הוסף רק את המאושרים
+                if approved_publishers:
+                    # המר את המפרסמים לפורמט שמתאים ל-_apply_broker_keywords
+                    for publisher in approved_publishers:
+                        self.recommendations['brokers'].append({
+                            'term': publisher['author'],
+                            'count': publisher['count'],
+                            'reason': f"מפרסם עבור {', '.join(publisher['broker_keywords'][:2])}",
+                            'type': 'publisher'
+                        })
+
+                    print("\n👤 מוסיף מפרסמים שנבחרו...")
+                    added = self._apply_broker_keywords()
+                    total_applied += added
+
+                    # נקה את brokers כדי לא לספור פעמיים
+                    self.recommendations['brokers'] = [b for b in self.recommendations['brokers'] if b.get('type') != 'publisher']
+                else:
+                    print("\n   ⏭️ לא נבחרו מפרסמים להוספה")
+            else:
+                # מצב אוטומטי - הוסף את כולם
+                for publisher in self.recommendations['publishers_for_brokers']:
+                    self.recommendations['brokers'].append({
+                        'term': publisher['author'],
+                        'count': publisher['count'],
+                        'reason': f"מפרסם עבור {', '.join(publisher['broker_keywords'][:2])}",
+                        'type': 'publisher'
+                    })
+
+                print("\n👤 מוסיף מפרסמים...")
+                added = self._apply_broker_keywords()
+                total_applied += added
+
+                # נקה את brokers כדי לא לספור פעמיים
+                self.recommendations['brokers'] = [b for b in self.recommendations['brokers'] if b.get('type') != 'publisher']
 
         # Blacklist
         if self.recommendations['blacklist']:
