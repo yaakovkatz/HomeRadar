@@ -120,7 +120,7 @@ class TuneAI:
 
             # שלוף פוסטים שסומנו כמתווכים או חשודים
             cursor.execute("""
-                SELECT content, author, ai_reason, category
+                SELECT post_id, content, author, ai_reason, category
                 FROM posts
                 WHERE is_broker = 1 OR category = 'BROKER' OR category = 'SUSPECTED_BROKER'
                 LIMIT 100
@@ -136,6 +136,10 @@ class TuneAI:
         # חלץ שמות חברות + שמות פרטיים
         broker_names = []
         suspected_names = []  # רשימה נפרדת לחשודים
+
+        # מילונים לשמירת הפוסטים לפי שם מתווך
+        broker_posts_dict = {}  # {broker_name: [(post_id, content, author), ...]}
+        suspected_posts_dict = {}  # {broker_name: [(post_id, content, author), ...]}
 
         # Patterns לשמות חברות
         company_patterns = [
@@ -160,7 +164,7 @@ class TuneAI:
             r'מ\.ר\.',
         ]
 
-        for content, author, reason, category in broker_posts:
+        for post_id, content, author, reason, category in broker_posts:
             text_all = content + " " + (author or "") + " " + (reason or "")
 
             # 1. חיפוש שמות חברות (patterns רגילים)
@@ -171,8 +175,14 @@ class TuneAI:
                     if not any(ignore in match for ignore in ['מילת', 'מפתח']):
                         if category == 'SUSPECTED_BROKER':
                             suspected_names.append(match)
+                            if match not in suspected_posts_dict:
+                                suspected_posts_dict[match] = []
+                            suspected_posts_dict[match].append((post_id, content, author))
                         else:
                             broker_names.append(match)
+                            if match not in broker_posts_dict:
+                                broker_posts_dict[match] = []
+                            broker_posts_dict[match].append((post_id, content, author))
 
             # 2. חיפוש שמות פרטיים מתוך ai_reason
             if reason and 'מילת מפתח' not in reason:
@@ -193,6 +203,9 @@ class TuneAI:
                             # כל הפוסטים האלה (BROKER או SUSPECTED_BROKER) הם חשודים
                             # כי אין להם מספר רישיון - רק שם פרטי
                             suspected_names.append(clean_name)
+                            if clean_name not in suspected_posts_dict:
+                                suspected_posts_dict[clean_name] = []
+                            suspected_posts_dict[clean_name].append((post_id, content, author))
 
             # 3. חיפוש מה-author אם זה BROKER וודאי
             if category == 'BROKER' and author and 'מילת' not in author:
@@ -200,7 +213,11 @@ class TuneAI:
                 if len(author.split()) <= 3 and len(author.split()) >= 2:  # שם מלא (2-3 מילים)
                     try:
                         if author[0].isupper():
-                            suspected_names.append(author.strip())
+                            clean_author = author.strip()
+                            suspected_names.append(clean_author)
+                            if clean_author not in suspected_posts_dict:
+                                suspected_posts_dict[clean_author] = []
+                            suspected_posts_dict[clean_author].append((post_id, content, author))
                     except:
                         pass
 
@@ -212,22 +229,26 @@ class TuneAI:
         for name, count in confirmed_counter.most_common(10):
             clean_name = name.strip()
             if count >= 2 and clean_name.lower() not in existing_keywords:
+                posts_list = broker_posts_dict.get(name, [])
                 self.recommendations['brokers'].append({
                     'term': clean_name,
                     'count': count,
                     'reason': f"מופיע {count} פעמים בפוסטי מתווכים וודאיים",
-                    'type': 'confirmed'
+                    'type': 'confirmed',
+                    'posts': posts_list[:3]  # רק 3 פוסטים ראשונים
                 })
 
         # חשודים (גם אם רק 1 פעם)
         for name, count in suspected_counter.most_common(10):
             clean_name = name.strip()
             if clean_name.lower() not in existing_keywords:
+                posts_list = suspected_posts_dict.get(name, [])
                 self.recommendations['brokers'].append({
                     'term': clean_name,
                     'count': count,
                     'reason': f"חשוד למתווך ({count} פוסטים)",
-                    'type': 'suspected'
+                    'type': 'suspected',
+                    'posts': posts_list[:3]  # רק 3 פוסטים ראשונים
                 })
 
         # הדפסה
@@ -239,11 +260,27 @@ class TuneAI:
                 print(f"  🔴 נמצאו {len(confirmed)} מתווכים וודאיים:")
                 for item in confirmed[:5]:
                     print(f"     ⚠️ '{item['term']}' - {item['count']} פוסטים")
+                    # הצג תצוגה מקדימה של הפוסטים
+                    for i, (post_id, content, author) in enumerate(item.get('posts', [])[:2], 1):
+                        preview = content[:80].replace('\n', ' ')
+                        if len(content) > 80:
+                            preview += "..."
+                        print(f"        📄 פוסט #{i}: {preview}")
+                        if author:
+                            print(f"           👤 מחבר: {author}")
 
             if suspected:
                 print(f"  🟡 נמצאו {len(suspected)} מתווכים חשודים:")
                 for item in suspected[:5]:
                     print(f"     🔍 '{item['term']}' - {item['count']} פוסטים (חשד)")
+                    # הצג תצוגה מקדימה של הפוסטים
+                    for i, (post_id, content, author) in enumerate(item.get('posts', [])[:2], 1):
+                        preview = content[:80].replace('\n', ' ')
+                        if len(content) > 80:
+                            preview += "..."
+                        print(f"        📄 פוסט #{i}: {preview}")
+                        if author:
+                            print(f"           👤 מחבר: {author}")
         else:
             print("  ✅ לא נמצאו מתווכים חדשים")
 
@@ -529,7 +566,16 @@ class TuneAI:
         if self.recommendations['brokers']:
             print(f"1️⃣ מתווכים חדשים ({len(self.recommendations['brokers'])}):")
             for item in self.recommendations['brokers'][:5]:
-                print(f"   🔍 \"{item['term']}\" - {item['count']} פוסטים")
+                broker_type = "🔴 וודאי" if item.get('type') == 'confirmed' else "🟡 חשוד"
+                print(f"   {broker_type} \"{item['term']}\" - {item['count']} פוסטים")
+                # הצג תצוגה מקדימה של הפוסטים
+                for i, (post_id, content, author) in enumerate(item.get('posts', [])[:2], 1):
+                    preview = content[:80].replace('\n', ' ')
+                    if len(content) > 80:
+                        preview += "..."
+                    print(f"      📄 פוסט #{i}: {preview}")
+                    if author:
+                        print(f"         👤 מחבר: {author}")
             print(f"   💡 המלצה: הוסף ל-broker_keywords\n")
 
         if self.recommendations['settlements']:
