@@ -149,10 +149,12 @@ class TuneAI:
 
         # Patterns לשמות חברות
         company_patterns = [
-            r'נדל["\']ן\s+(\w+)',  # נדל"ן X
-            r'(\w+)\s+נכסים',      # X נכסים
-            r'Real\s+Estate\s+(\w+)',  # Real Estate X
-            r'מתווך[ת]?\s+(\w+)',  # מתווך X
+            r'([א-ת\w]+\s+[א-ת\w]+)\s+נכסים',  # "אופק מאיר נכסים" - שם מלא עם נכסים
+            r'נדל["\']ן\s+([א-ת\w]+(?:\s+[א-ת\w]+)?)',  # נדל"ן X או נדל"ן X Y
+            r'([א-ת\w]+(?:\s+[א-ת\w]+)?)\s+Real\s+Estate',  # X Real Estate או X Y Real Estate
+            r'Real\s+Estate\s+([א-ת\w]+(?:\s+[א-ת\w]+)?)',  # Real Estate X או Real Estate X Y
+            r'מתווך[ת]?\s+([א-ת\w]+(?:\s+[א-ת\w]+)?)',  # מתווך X או מתווך X Y
+            r'([א-ת\w]+)\s+נכסים',  # X נכסים - fallback אם לא תפס 2 מילים
         ]
 
         # Patterns לשמות פרטיים מתוך ai_reason
