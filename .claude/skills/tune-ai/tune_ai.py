@@ -354,11 +354,24 @@ class TuneAI:
         for post_id, content, author, category in all_posts:
             content_lower = content.lower()
 
-            # בדוק אם התוכן מכיל broker_keywords
+            # בדוק אם התוכן מכיל broker_keywords (אבל לא "ללא תיווך" וכו')
             found_keywords = []
             for kw in broker_keywords:
                 if kw in content_lower:
-                    found_keywords.append(kw)
+                    # בדוק שזה לא "ללא תיווך" או "בלי תיווך"
+                    negative_patterns = [
+                        f'ללא {kw}',
+                        f'בלי {kw}',
+                        f'לא {kw}',
+                        f'without {kw}',
+                        f'no {kw}'
+                    ]
+
+                    # אם אחד מהביטויים השליליים קיים - דלג
+                    is_negative = any(pattern in content_lower for pattern in negative_patterns)
+
+                    if not is_negative:
+                        found_keywords.append(kw)
 
             # אם מצאנו broker_keywords בפוסט
             if found_keywords:
