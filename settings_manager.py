@@ -4,22 +4,27 @@ settings_manager.py - ניהול הגדרות מרכזי
 
 import json
 import os
+import threading
 from datetime import datetime
 
 
 class SettingsManager:
     """
-    מנהל הגדרות מרכזי - Singleton
+    מנהל הגדרות מרכזי - Singleton (Thread-Safe)
     מאפשר קריאה ושמירה של הגדרות בצורה מרכזית
     """
 
     _instance = None  # Singleton - רק instance אחד בכל התוכנה
+    _lock = threading.Lock()  # Lock לthread safety
 
     def __new__(cls, config_path="config.json"):
-        """יוצר instance יחיד (Singleton pattern)"""
+        """יוצר instance יחיד (Singleton pattern) - Thread Safe"""
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
+            with cls._lock:  # Critical section
+                # Double-check pattern
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
         return cls._instance
 
     def __init__(self, config_path="config.json"):

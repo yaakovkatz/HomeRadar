@@ -119,14 +119,14 @@ class FacebookScraper:
                         see_more = post.find_element(By.XPATH, ".//*[contains(text(), 'עוד') or contains(text(), 'See more')]")
                         self.driver.execute_script("arguments[0].click();", see_more)
                         time.sleep(0.5)
-                    except:
+                    except Exception:
                         pass
 
                     # תוכן
                     try:
                         content = post.text.strip()
                         content = self._clean_noise(content)
-                    except:
+                    except Exception:
                         content = ""
 
                     # ========================================
@@ -157,7 +157,7 @@ class FacebookScraper:
                                 elif "/permalink/" in post_url:
                                     post_id = post_url.split("/permalink/")[-1]
                                 break
-                    except:
+                    except Exception:
                         pass
 
                     # חילוץ שם מפרסם
@@ -175,7 +175,7 @@ class FacebookScraper:
                             strongs = post.find_elements(By.TAG_NAME, "strong")
                             if strongs:
                                 author = strongs[0].text.strip()
-                    except:
+                    except Exception:
                         pass
 
                     # שמירה
@@ -188,7 +188,7 @@ class FacebookScraper:
                             # רק תמונות אמיתיות (לא אייקונים)
                             if img_url and 'scontent' in img_url:
                                 images.append(img_url)
-                    except:
+                    except Exception:
                         pass
 
                     # שמירה
@@ -216,5 +216,5 @@ class FacebookScraper:
         if self.driver:
             try:
                 self.driver.quit()
-            except:
+            except Exception:
                 pass

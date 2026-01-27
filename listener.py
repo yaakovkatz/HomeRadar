@@ -25,6 +25,7 @@ class FacebookListener:
         self.scraper = None
         self.is_listening = False
         self.is_cleaning = False
+        self.stop_event = threading.Event()  # Stop signal for graceful shutdown
         self.stats = {
             'checks_today': 0,
             'new_posts': 0,
@@ -105,17 +106,66 @@ class FacebookListener:
         content_lower = content.lower()
 
         # שלב 1: בדוק whitelist - אם יש התאמה, אל תסנן!
-        whitelist = self.settings.get('search_settings.whitelist', [])
+        whitelist = self.settings.get('search_settings.search_settings.whitelist', [])
         for phrase in whitelist:
             if phrase.lower() in content_lower:
                 # נמצאה ביטוי מה-whitelist - זה פוסט לגיטימי!
                 return None
 
         # שלב 2: רק עכשיו בדוק blacklist
-        blacklist = self.settings.get('search_settings.blacklist', [])
+        blacklist = self.settings.get('search_settings.search_settings.blacklist', [])
         for word in blacklist:
             if word.lower() in content_lower:
                 return word  # נמצאה מילה אסורה
+
+        return None
+
+    def _check_broker_keywords(self, content):
+        """
+        בודק אם הפוסט מכיל מילות מפתח של מתווכים
+        מתעלם ממקרים של שלילה כמו "ללא תיווך", "בלי תיווך"
+
+        Returns:
+            None אם לא מתווך, או את המילה שנתפסה
+        """
+        import re
+        content_lower = content.lower()
+
+        # דפוסי שלילה שמבטלים זיהוי של מתווך
+        negation_patterns = [
+            r'\bללא\s+',      # "ללא תיווך"
+            r'\bבלי\s+',      # "בלי תיווך"
+            r'\bלא\s+',       # "לא תיווך" (פחות נפוץ)
+            r'\bללא\s+דמי\s+', # "ללא דמי תיווך"
+            r'\bבלי\s+דמי\s+', # "בלי דמי תיווך"
+            r'\bזה\s+לא\s+',  # "זה לא תיווך"
+        ]
+
+        broker_keywords = self.settings.get('search_settings.search_settings.broker_keywords', [])
+        for keyword in broker_keywords:
+            keyword_lower = keyword.lower()
+
+            # בדיקה אם המילה קיימת בתוכן
+            if keyword_lower in content_lower:
+                # בדיקה אם יש שלילה לפני המילה
+                is_negated = False
+                negation_found = None
+                for negation in negation_patterns:
+                    # חיפוש דפוס של שלילה + מילת מפתח
+                    pattern = negation + re.escape(keyword_lower)
+                    match = re.search(pattern, content_lower)
+                    if match:
+                        is_negated = True
+                        negation_found = match.group(0)  # שומר את הביטוי המלא
+                        break
+
+                # אם יש שלילה - לוג ואל תסנן
+                if is_negated:
+                    self._log(f"  ℹ️ זוהתה מילה '{keyword}' אבל עם שלילה: '{negation_found}' - הפוסט לא סונן")
+                    continue  # המשך לבדוק מילות מפתח אחרות
+
+                # אם אין שלילה - זה מתווך אמיתי
+                return keyword  # נמצאה מילת תיווך
 
         return None
 
@@ -130,7 +180,9 @@ class FacebookListener:
             if post['post_id'] == last_known_id:
                 break
 
+            # בדיקות סינון
             blacklist_match = self._check_blacklist(post['content'])
+            broker_match = self._check_broker_keywords(post['content'])
 
             post_data = {
                 'post_url': post['post_url'],
@@ -142,7 +194,8 @@ class FacebookListener:
                 'city': post.get('city'),
                 'group_name': group_name,
                 'blacklist_match': blacklist_match,
-                'is_relevant': 1 if blacklist_match is None else 0,
+                'broker_match': broker_match,  # ← הוסף את זה!
+                'is_relevant': 1 if (blacklist_match is None and broker_match is None) else 0,
                 'scanned_at': datetime.now()
             }
 
@@ -150,14 +203,35 @@ class FacebookListener:
 
             if saved:
                 new_count += 1
-                if blacklist_match:
+                if broker_match:
+                    blacklisted_count += 1
+                    # הצגת פרטי המתווך שנחסם
+                    author = post.get('author', 'לא ידוע')
+                    content_preview = post['content'][:80].replace('\n', ' ')
+                    self._log(f"  🚫 מתווך נחסם! מילת מפתח: '{broker_match}'")
+                    self._log(f"     מאת: {author} | תוכן: {content_preview}...")
+                elif blacklist_match:
                     blacklisted_count += 1
                     self._log(f"  🔴 סונן: '{post['content'][:50]}...' (מילה: {blacklist_match})")
                 else:
-                    self._log(f"  🟢 חדש: '{post['content'][:50]}...'")
+                    # חלץ פרטים להצגה מסודרת
+                    details = self.db.extract_details(post['content'], group_name=group_name)
+
+                    # בנה הודעה מסודרת
+                    parts = []
+                    if details.get('city'):
+                        parts.append(f"📍 {details['city']}")
+                    if details.get('location'):
+                        parts.append(f"{details['location']}")
+                    if details.get('price'):
+                        parts.append(f"💰 {details['price']} ₪")
+                    if details.get('rooms'):
+                        parts.append(f"🏠 {details['rooms']} חד'")
+
+                    summary = " | ".join(parts) if parts else post['content'][:60]
+                    self._log(f"  🟢 חדש: {summary}")
 
                     if self.new_post_callback:
-                        details = self.db.extract_details(post['content'])
                         enriched_data = {
                             **post_data,
                             'price': details.get('price'),
@@ -245,6 +319,7 @@ class FacebookListener:
         for idx, group_url in enumerate(groups_urls):
             group_name = groups_names[idx]
 
+            print("\n" + "-" * 70)
             self._log(f"🔍 סורק קבוצה: {group_name}")
 
             try:
@@ -258,6 +333,7 @@ class FacebookListener:
                 self._log(f"📊 נמצאו {len(posts)} פוסטים בקבוצה '{group_name}'")
 
                 # עיבוד פוסטים
+                self._log(f"⚙️ מעבד פוסטים מ-'{group_name}'...")
                 new_count, blacklisted_count = self._process_posts(posts, group_name)
 
                 # צבירת סטטיסטיקות
@@ -265,6 +341,7 @@ class FacebookListener:
                 total_filtered += blacklisted_count
 
                 self._log(f"✅ קבוצה '{group_name}': {new_count} חדשים ({blacklisted_count} סוננו)")
+                print("-" * 70)
 
             except Exception as e:
                 self._log(f"❌ שגיאה בסריקת '{group_name}': {str(e)}")
@@ -308,6 +385,7 @@ class FacebookListener:
                 pass
             self.scraper = None
 
+        self.stop_event.clear()  # Reset stop signal for new session
         self.is_listening = True
         self.stats = {
             'checks_today': 0,
@@ -336,7 +414,7 @@ class FacebookListener:
     def _listen_loop(self):
         """הלולאה הראשית של ההאזנה"""
         try:
-            while self.is_listening:
+            while self.is_listening and not self.stop_event.is_set():
                 if not self._is_active_hours():
                     # חדש - משתמשים ב-settings
                     start_hour = self.settings.get('listener.active_hours_start', 8)
@@ -345,7 +423,8 @@ class FacebookListener:
                     # start_hour = self.config['listener']['active_hours_start']
 
                     self._log(f"😴 מחוץ לשעות פעילות - ישן עד {start_hour}:00")
-                    time.sleep(3600)
+                    if self.stop_event.wait(3600):  # Wait with early exit
+                        break
                     continue
 
                 self._single_check()
@@ -365,10 +444,10 @@ class FacebookListener:
                 self._log(f"⏰ ממתין {minutes} דקות עד הבדיקה הבאה...")
                 print("=" * 70 + "\n")
 
+                # Wait in 10-second chunks for responsive shutdown
                 for _ in range(wait_time // 10):
-                    if not self.is_listening:
+                    if self.stop_event.wait(10):  # Check every 10 seconds
                         break
-                    time.sleep(10)
 
         except Exception as e:
             self._log(f"❌ שגיאה קריטית בלולאה: {str(e)}")
@@ -396,13 +475,14 @@ class FacebookListener:
         self._log("✓ ניקוי הושלם")
 
     def stop_listening(self):
-        """עוצר את ההאזנה"""
+        """עוצר את ההאזנה בצורה יפה"""
         if not self.is_listening:
             self._log("⚠️ לא מאזין כרגע")
             return
 
         self._log("⏸️ עוצר האזנה...")
         self.is_listening = False
+        self.stop_event.set()  # Signal thread to stop gracefully
 
         wait_count = 0
         while self.is_cleaning and wait_count < 10:

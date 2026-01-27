@@ -3,9 +3,9 @@ fb_bot_profile/
 chrome_profile/
 
 # התעלם מהדאטאבייס (חשוב!)
-posts.db
-*.db
-*.sqlite3
+# *.db - מוסר זמנית כדי לעלות posts.db לגיט
+# *.sqlite3 - מוסר זמנית
+# posts.db עכשיו יעלה לגיט!
 
 # קבצי מערכת של פייתון
 __pycache__/
@@ -19,3 +19,6 @@ venv/
 # תיקיות של העורך קוד
 .idea/
 .vscode/
+
+# קבצי backup של tune-ai
+*.backup.*

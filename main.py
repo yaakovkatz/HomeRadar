@@ -286,12 +286,34 @@ class GuardianGUI:
         for widget in self.cards_container.winfo_children():
             widget.destroy()
 
+        # טעינת רשימת שכונות מהמאגר
+        try:
+            import json
+            import os
+            locations_file = os.path.join(os.path.dirname(__file__), 'data', 'locations.json')
+            with open(locations_file, 'r', encoding='utf-8') as f:
+                locations_data = json.load(f)
+            known_neighborhoods = locations_data.get('neighborhoods', {})
+        except:
+            known_neighborhoods = {}
+
         # 2. שליפת הנתונים
         all_stats = self.analytics.get_city_neighborhood_stats(min_apartments=1)
 
         ALLOWED_CITIES = ['ירושלים', 'בית שמש', 'בני ברק']
-        stats = {city: neighborhoods for city, neighborhoods in all_stats.items()
-                 if city in ALLOWED_CITIES}
+
+        # סינון: רק שכונות מהמאגר (לא רחובות!)
+        stats = {}
+        for city, neighborhoods in all_stats.items():
+            if city in ALLOWED_CITIES:
+                # סנן רק שכונות (לא רחובות!)
+                filtered_neighborhoods = {
+                    neighborhood: count
+                    for neighborhood, count in neighborhoods.items()
+                    if not neighborhood.startswith('רחוב')  # לא רחובות
+                }
+                if filtered_neighborhoods:
+                    stats[city] = filtered_neighborhoods
 
         if not stats:
             tk.Label(self.cards_container,
@@ -348,9 +370,9 @@ class GuardianGUI:
                 # --- כרטיס שכונה (Single Line) ---
                 # גובה מינימלי נמוך יותר ועיצוב צפוף
                 card = tk.Frame(neighborhoods_grid, bg='white',
-                                highlightbackground=border_color,
-                                highlightthickness=1,  # מסגרת דקה יותר
-                                bd=0)
+                              highlightbackground=border_color,
+                              highlightthickness=1,  # מסגרת דקה יותר
+                              bd=0)
 
                 card.grid(row=row, column=col, padx=3, pady=3, sticky='ew')
 
@@ -614,6 +636,7 @@ class GuardianGUI:
         tree.pack(fill='both', expand=True)
         tree.tag_configure('oddrow', background='white')
         tree.tag_configure('evenrow', background='#f2f6f8')
+        tree.tag_configure('suspected', background='#fff3cd', foreground='#856404')  # צהוב לחשודים
 
         status_var = tk.StringVar()
 
@@ -677,7 +700,12 @@ class GuardianGUI:
                 link = post['post_url']
                 post_id = post.get('id', 0)
 
-                row_tag = 'evenrow' if i % 2 == 0 else 'oddrow'
+                # בדיקה: האם זה חשוד למתווך?
+                category = post.get('category', 'RELEVANT')
+                if category == 'SUSPECTED_BROKER':
+                    row_tag = 'suspected'
+                else:
+                    row_tag = 'evenrow' if i % 2 == 0 else 'oddrow'
 
                 tree.insert('', 'end',
                             values=(i + 1, author, city, neighborhood, street, price, rooms, phone, group_display,
