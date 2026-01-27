@@ -6,7 +6,6 @@ scraper.py - סורק פייסבוק ללא גלילה (מצב זהיר)
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 import time
-import json
 import os
 from settings_manager import SettingsManager  # ← הוספנו!
 
@@ -18,26 +17,8 @@ class FacebookScraper:
         """אתחול הסורק"""
         self.driver = None
 
-        # ישן - נשאר לביטחון (נמחק בשלב 4)
-        self.config = self._load_config(config_path)
-
-        # חדש - זה מה שנשתמש בו
+        # הגדרות
         self.settings = SettingsManager(config_path)
-
-    def _load_config(self, config_path):
-        """טוען הגדרות - ישן, נשאר לביטחון"""
-        if os.path.exists(config_path):
-            with open(config_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        else:
-            # ברירת מחדל
-            return {
-                "chrome_profile_path": "",
-                "scraper": {
-                    "page_load_wait": 5,
-                    "max_time_on_facebook": 15
-                }
-            }
 
     def _clean_noise(self, text):
         """
@@ -69,11 +50,7 @@ class FacebookScraper:
             options.add_argument('--disable-dev-shm-usage')
             options.add_argument('--no-sandbox')
 
-            # חדש - משתמשים ב-settings
             profile_path = self.settings.get('chrome_profile_path', '')
-
-            # ישן - מוערת
-            # profile_path = self.config.get("chrome_profile_path")
 
             if not profile_path:
                 profile_path = os.path.join(os.getcwd(), "fb_bot_profile")
@@ -97,11 +74,7 @@ class FacebookScraper:
             # כניסה לקבוצה
             self.driver.get(group_url)
 
-            # חדש - משתמשים ב-settings
             page_load_wait = self.settings.get('scraper.page_load_wait', 5)
-
-            # ישן - מוערת
-            # page_load_wait = self.config.get("scraper", {}).get("page_load_wait", 5)
 
             time.sleep(page_load_wait)
 
