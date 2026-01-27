@@ -68,6 +68,7 @@ class GuardianGUI:
         self.listener.force_cleanup()
         self.root.destroy()
 
+
     def _create_header(self):
         header = tk.Frame(self.root, bg=COLORS['primary'], height=85)
         header.pack(fill='x')
