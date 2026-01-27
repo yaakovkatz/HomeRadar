@@ -126,6 +126,10 @@ class PostDatabase:
 
         print(f"✅ קומפלו {len(self.cities)} ערים, {len(self.neighborhoods_regex)} קבוצות שכונות")
 
+    def _get_cities_list(self):
+        """מחזיר את רשימת הערים הרלוונטיות"""
+        return self.cities if self.cities else []
+
     def save_post(self, post_data):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -153,7 +157,8 @@ class PostDatabase:
                 try:
                     # שליחת תמונות ל-AI
                     group_name = post_data.get('group_name', '')
-                    ai_result = self.ai_agents.classify_post(content, author, images, group_name=group_name)
+                    cities = self._get_cities_list()
+                    ai_result = self.ai_agents.classify_post(content, author, images, group_name=group_name, cities=cities)
 
                     # הצגת תוצאה
                     if images:
