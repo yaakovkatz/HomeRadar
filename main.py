@@ -286,17 +286,6 @@ class GuardianGUI:
         for widget in self.cards_container.winfo_children():
             widget.destroy()
 
-        # טעינת רשימת שכונות מהמאגר
-        try:
-            import json
-            import os
-            locations_file = os.path.join(os.path.dirname(__file__), 'data', 'locations.json')
-            with open(locations_file, 'r', encoding='utf-8') as f:
-                locations_data = json.load(f)
-            known_neighborhoods = locations_data.get('neighborhoods', {})
-        except:
-            known_neighborhoods = {}
-
         # 2. שליפת הנתונים
         all_stats = self.analytics.get_city_neighborhood_stats(min_apartments=1)
 
