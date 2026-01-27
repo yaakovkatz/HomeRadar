@@ -222,7 +222,8 @@ class PostDatabase:
                 if self.ai_agents:
                     try:
                         # שליחת תמונות ל-AI
-                        ai_result = self.ai_agents.classify_post(content, author, images)  # ← חדש!
+                        group_name = post_data.get('group_name', '')
+                    ai_result = self.ai_agents.classify_post(content, author, images, group_name=group_name)
     
                         # הצגת תוצאה
                         if images:

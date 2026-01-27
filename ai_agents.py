@@ -42,7 +42,7 @@ class AIAgents:
     # Agent 1: Classification (סינון) - עם תמיכה בתמונות
     # =========================================================
 
-    def classify_post(self, content, author, images=None):
+    def classify_post(self, content, author, images=None, group_name=None):
         """
         Agent 1: מסווג פוסט לקטגוריה (עם תמיכה בתמונות!)
 
@@ -50,10 +50,11 @@ class AIAgents:
             content: תוכן הפוסט
             author: שם המפרסם
             images: רשימת URLs של תמונות (אופציונלי)
+            group_name: שם קבוצת הפייסבוק (אופציונלי)
 
         Returns:
             {
-                'category': 'RELEVANT' | 'BROKER' | 'SPAM' | 'AUCTION' | 'WANTED' | 'QUESTION',
+                'category': 'RELEVANT' | 'BROKER' | 'SPAM' | 'AUCTION' | 'WANTED' | 'QUESTION' | 'NON_URBAN' | 'SUSPECTED_BROKER' | 'ROOMMATE',
                 'is_broker': True/False,
                 'confidence': 0.0-1.0,
                 'reason': 'הסבר קצר'
@@ -175,6 +176,7 @@ class AIAgents:
 
 **פוסט:**
 מפרסם: {author}
+{"קבוצה: " + group_name if group_name else ""}
 תוכן: {content[:500]}
 {"תמונות: מצורפות (קרא אותן!)" if images else ""}
 
