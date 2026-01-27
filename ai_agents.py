@@ -42,7 +42,9 @@ class AIAgents:
     # Agent 1: Classification (סינון) - עם תמיכה בתמונות
     # =========================================================
 
-    def classify_post(self, content, author, images=None):
+    VALID_CATEGORIES = {'RELEVANT', 'BROKER', 'SPAM', 'AUCTION', 'WANTED', 'QUESTION'}
+
+    def classify_post(self, content, author, images=None, group_name=None):
         """
         Agent 1: מסווג פוסט לקטגוריה (עם תמיכה בתמונות!)
 
@@ -93,6 +95,7 @@ class AIAgents:
 
 **פוסט:**
 מפרסם: {author}
+{"קבוצה: " + group_name if group_name else ""}
 תוכן: {content[:500]}
 {"תמונות: מצורפות (קרא אותן!)" if images else ""}
 
@@ -126,6 +129,9 @@ class AIAgents:
 3. אם מכרז/כונס נכסים → category: "AUCTION", is_broker: false
 4. confidence: 0.5-1.0 (עד כמה אתה בטוח)
 5. אם confidence < 0.5 → category: "RELEVANT" (במקרה ספק)
+6. **חובה! השתמש רק בקטגוריות שהוגדרו למעלה: RELEVANT, BROKER, SPAM, AUCTION, WANTED, QUESTION. אל תמציא קטגוריות חדשות!**
+7. **אם שם הקבוצה מכיל שם עיר - הפוסט כנראה מאותה עיר, גם אם לא מצוין מפורשות!**
+8. **דירה עם רחוב בלי עיר = RELEVANT (לא לסנן!)**
 """
 
         try:
@@ -169,6 +175,11 @@ class AIAgents:
             # ולידציה
             if result['confidence'] < 0.5:
                 result['category'] = 'RELEVANT'  # במקרה ספק
+
+            # ולידציה: קטגוריה חייבת להיות מוכרת!
+            if result['category'] not in self.VALID_CATEGORIES:
+                print(f"  ⚠️ קטגוריה לא מוכרת '{result['category']}' → RELEVANT")
+                result['category'] = 'RELEVANT'
 
             return result
 
