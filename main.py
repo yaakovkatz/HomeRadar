@@ -8,7 +8,7 @@ from listener import FacebookListener
 from database import PostDatabase
 from analytics import Analytics
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import time
 import webbrowser
@@ -145,10 +145,13 @@ class GuardianGUI:
         self.card_time = self._create_card(dashboard, "זמן פעילות", "00:00", "סשן נוכחי")
         self.card_time.pack(side='right', fill='both', expand=True, padx=5)
 
-        self.card_checks = self._create_card(dashboard, "בדיקות היום", "0", "הבאה: --:--")
+        today_str = datetime.now().strftime("%d/%m")
+        week_ago_str = (datetime.now() - timedelta(days=7)).strftime("%d/%m")
+
+        self.card_checks = self._create_card(dashboard, f"בדיקות {today_str}", "0", "הבאה: --:--")
         self.card_checks.pack(side='right', fill='both', expand=True, padx=5)
 
-        self.card_apartments = self._create_card(dashboard, "דירות היום", "0", "שבוע: 0")
+        self.card_apartments = self._create_card(dashboard, f"דירות {today_str}", "0", f"מ-{week_ago_str}: 0")
         self.card_apartments.pack(side='right', fill='both', expand=True, padx=5)
 
         self.card_trends = self._create_card(dashboard, "מחיר ממוצע", "--", "עיר מובילה: --")
@@ -472,7 +475,8 @@ class GuardianGUI:
                     today_stats = self.db.get_stats()
                     week_stats = self.db.get_week_stats()
                     self.card_apartments.value_label.config(text=str(today_stats.get('today', 0)))
-                    self.card_apartments.sub_label.config(text=f"שבוע: {week_stats.get('relevant', 0)}")
+                    week_ago = (datetime.now() - timedelta(days=7)).strftime("%d/%m")
+                    self.card_apartments.sub_label.config(text=f"מ-{week_ago}: {week_stats.get('relevant', 0)}")
 
                     try:
                         trends = self.analytics.get_trends_today()
