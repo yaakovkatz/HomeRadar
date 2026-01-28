@@ -385,57 +385,8 @@ class GuardianGUI:
     # קבלת נתונים מה-Listener
     # ==============================================================================
     def on_new_post_found(self, post_data):
-        """מקבל נתונים ומכין אותם לתצוגה"""
-
-        # 1. טיפול במחיר - אחיד עם פסיקים
-        price = "לא צוין"
-        if post_data.get('price'):
-            try:
-                # הסר תווים מיותרים והמר למספר
-                clean_num = int(str(post_data['price']).replace(',', '').replace('₪', '').strip())
-                # פורמט אחיד: ₪ בהתחלה + פסיקים
-                price = f"₪{clean_num:,}"
-            except (ValueError, TypeError):
-                price = "לא צוין"
-
-        # גיבוי: חילוץ מהטקסט
-        if price == "לא צוין":
-            content = post_data.get('content', '')
-            match = re.search(r'(\d{1,3}(?:,\d{3})*)', content)
-            if match:
-                try:
-                    num = int(match.group(1).replace(',', ''))
-                    if num > 1000:
-                        price = f"₪{num:,}"
-                except (ValueError, TypeError):
-                    pass
-
-        # 2. מיקום מלא (עיר + שכונה/רחוב)
-        # המידע כבר מגיע מה-listener (enriched_data)
-        city = post_data.get('city', '')
-        loc = post_data.get('location', '')
-
-        if city and loc:
-            location = f"{city}, {loc}"
-        elif city:
-            location = city
-        elif loc:
-            location = loc
-        else:
-            location = "לא צוין"
-
-        # קיצור טקסט ארוך
-        if len(location) > 25:
-            location = location[:23] + "..."
-
-        # 3. חדרים
-        rooms = post_data.get('rooms')
-        if not rooms:
-            rooms = "-"
-
-        display_rooms = str(rooms) if "חד" in str(rooms) else f"{rooms} חד'"
-
-        # רענון כרטיסיות עיר-שכונה (במקום כרטיסייה בודדת)
+        """מקבל נתונים ומרענן את תצוגת הכרטיסיות"""
+        # רענון כרטיסיות עיר-שכונה
         self.root.after(0, lambda: self._create_city_neighborhood_cards())
 
     def log_status(self, message, level='INFO'):
@@ -504,7 +455,7 @@ class GuardianGUI:
                         self.card_time.value_label.config(text=f"{h:02}:{m:02}:{s:02}")
 
                     listener_stats = self.listener.get_stats()
-                    checks = listener_stats.get('checks_today', 0)
+                    checks = self.db.get_checks_today()
                     next_check = listener_stats.get('next_check')
                     self.card_checks.value_label.config(text=str(checks))
                     if next_check:

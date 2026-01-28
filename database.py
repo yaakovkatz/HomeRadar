@@ -61,6 +61,16 @@ class PostDatabase:
             )
         ''')
         cursor.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
+
+        # טבלת לוג בדיקות - שומרת כל סריקה
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS scan_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                new_posts INTEGER DEFAULT 0,
+                filtered_posts INTEGER DEFAULT 0,
+                scanned_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         conn.commit()
         conn.close()
 
@@ -516,6 +526,23 @@ class PostDatabase:
 
             return {'relevant': relevant, 'blacklisted': blacklisted}
 
+
+    # =========================================================
+    #  לוג בדיקות - רישום ושליפה מה-DB
+    # =========================================================
+    def log_scan(self, new_posts=0, filtered_posts=0):
+        """רושם בדיקה חדשה ב-DB"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                'INSERT INTO scan_log (new_posts, filtered_posts) VALUES (?, ?)',
+                (new_posts, filtered_posts))
+
+    def get_checks_today(self):
+        """מחזיר כמה בדיקות היו היום"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM scan_log WHERE DATE(scanned_at) = DATE('now')")
+            return cursor.fetchone()[0]
 
     #=========================================================
     #מחיקת פוסטים ישנים מהדאטאבייס (תחזוקה וניקוי)

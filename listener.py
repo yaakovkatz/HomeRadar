@@ -9,7 +9,6 @@ from datetime import datetime, time as dt_time
 import threading
 from scraper import FacebookScraper
 from database import PostDatabase
-import json
 import os
 from settings_manager import SettingsManager
 
@@ -83,13 +82,8 @@ class FacebookListener:
         """בודק אם אנחנו בשעות פעילות"""
         now = datetime.now().time()
 
-        # חדש - משתמשים ב-settings
         start_hour = self.settings.get('listener.active_hours_start', 8)
         end_hour = self.settings.get('listener.active_hours_end', 23)
-
-        # ישן - מוערת
-        # start_hour = self.config['listener']['active_hours_start']
-        # end_hour = self.config['listener']['active_hours_end']
 
         start_time = dt_time(start_hour, 0)
         end_time = dt_time(end_hour, 0)
@@ -353,6 +347,9 @@ class FacebookListener:
         self.stats['checks_today'] += 1
         self.stats['last_check'] = datetime.now()
 
+        # שמירת הבדיקה ב-DB
+        self.db.log_scan(new_posts=total_new, filtered_posts=total_filtered)
+
         print("\n" + "=" * 70)
         self._log(f"🎯 סיום מחזור: {total_new} פוסטים חדשים סה״כ ({total_filtered} סוננו)")
         print("=" * 70)
@@ -416,12 +413,7 @@ class FacebookListener:
         try:
             while self.is_listening and not self.stop_event.is_set():
                 if not self._is_active_hours():
-                    # חדש - משתמשים ב-settings
                     start_hour = self.settings.get('listener.active_hours_start', 8)
-
-                    # ישן - מוערת
-                    # start_hour = self.config['listener']['active_hours_start']
-
                     self._log(f"😴 מחוץ לשעות פעילות - ישן עד {start_hour}:00")
                     if self.stop_event.wait(3600):  # Wait with early exit
                         break
@@ -429,13 +421,8 @@ class FacebookListener:
 
                 self._single_check()
 
-                # חדש - משתמשים ב-settings
                 min_interval = self.settings.get('listener.check_interval_min', 360)
                 max_interval = self.settings.get('listener.check_interval_max', 480)
-
-                # ישן - מוערת
-                # min_interval = self.config['listener']['check_interval_min']
-                # max_interval = self.config['listener']['check_interval_max']
 
                 wait_time = random.randint(min_interval, max_interval)
                 self.stats['next_check'] = datetime.now().timestamp() + wait_time
