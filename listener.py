@@ -347,6 +347,9 @@ class FacebookListener:
         self.stats['checks_today'] += 1
         self.stats['last_check'] = datetime.now()
 
+        # שמירת הבדיקה ב-DB
+        self.db.log_scan(new_posts=total_new, filtered_posts=total_filtered)
+
         print("\n" + "=" * 70)
         self._log(f"🎯 סיום מחזור: {total_new} פוסטים חדשים סה״כ ({total_filtered} סוננו)")
         print("=" * 70)

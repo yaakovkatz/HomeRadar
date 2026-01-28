@@ -12,6 +12,7 @@ from datetime import datetime
 import os
 import time
 import webbrowser
+import re
 
 # --- הגדרות צבעים ועיצוב ---
 COLORS = {
@@ -453,7 +454,7 @@ class GuardianGUI:
                         self.card_time.value_label.config(text=f"{h:02}:{m:02}:{s:02}")
 
                     listener_stats = self.listener.get_stats()
-                    checks = listener_stats.get('checks_today', 0)
+                    checks = self.db.get_checks_today()
                     next_check = listener_stats.get('next_check')
                     self.card_checks.value_label.config(text=str(checks))
                     if next_check:
